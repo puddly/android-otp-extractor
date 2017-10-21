@@ -1,11 +1,12 @@
 ## Extract Android Authenticator Tokens
 
-Sick of Authy and Google Authenticator? Want to migrate or backup your tokens but frustrated that you can't? Now you can.
+Many OTP apps don't support exporting their OTP secrets. Switching apps would require you to regenerate all of your tokens, which can be tedious if you have a lot. This Python application can extract the tokens from popular Android OTP apps and export them in a standard format.
 
 ## Supports
 
  - Google Authenticator
  - Authy
+ - FreeOTP
 
 ## Usage
 
@@ -22,6 +23,7 @@ Requires Python 3.6+ and a **rooted** Android phone.
       -h, --help            show this help message and exit
       --no-authy            no Authy codes (default: False)
       --no-authenticator    no Google Authenticator codes (default: False)
+      --no-freeotp          no FreeOTP codes (default: False)
       --data DATA           path to the app data folder (default: /data/data)
       --show-uri [SHOW_URI]
                             prints the accounts as otpauth:// URIs (default: True)

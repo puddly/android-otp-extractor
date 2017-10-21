@@ -85,6 +85,26 @@ def read_authy_accounts(data_root):
             yield Account(account['name'], account['digits'], period, normalize_secret(secret))
 
 
+def read_freeotp_accounts(data_root):
+    try:
+        handle = adb_read_file(data_root/'org.fedorahosted.freeotp/shared_prefs/tokens.xml')
+    except FileNotFoundError:
+        return
+
+    for string in ElementTree.parse(handle).findall('string'):
+        account = json.loads(string.text)
+
+        if 'secret' not in account:
+            continue
+
+        if account['type'] != 'TOTP':
+            raise ValueError('Only TOTP is supported.')
+
+        secret = normalize_secret(bytes([b & 0xff for b in account['secret']]).hex())
+
+        yield Account(account['label'], account['digits'], account['period'], secret)
+
+
 def read_authenticator_accounts(data_root):
     try:
         database = adb_read_file(data_root/'com.google.android.apps.authenticator2/databases/databases')
@@ -166,9 +186,10 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Extracts TOTP secrets from a rooted Android phone.', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--no-authy', action='store_true', help='no Authy codes')
     parser.add_argument('--no-authenticator', action='store_true', help='no Google Authenticator codes')
+    parser.add_argument('--no-freeotp', action='store_true', help='no FreeOTP codes')
     parser.add_argument('--data', type=Path, default=Path('/data/data/'), help='path to the app data folder')
     parser.add_argument('--show-uri', nargs='?', default=True, type=parse_bool, help='prints the accounts as otpauth:// URIs')
-    parser.add_argument('--show-qr', nargs='?', default=False, type=parse_bool, help='displays the accounts as a local webpage with scannable QR codes')
+    parser.add_argument('--show-qr', nargs='?', default=False, const=True, type=parse_bool, help='displays the accounts as a local webpage with scannable QR codes')
     parser.add_argument('--andotp-backup', type=Path, help='saves the accounts as an AndOTP backup file')
 
     args = parser.parse_args()
@@ -181,13 +202,16 @@ if __name__ == '__main__':
         sys.exit(1)
 
 
-    accounts = []
+    accounts = set()
 
     if not args.no_authy:
-        accounts.extend(read_authy_accounts(args.data))
+        accounts.update(read_authy_accounts(args.data))
+
+    if not args.no_freeotp:
+        accounts.update(read_freeotp_accounts(args.data))
 
     if not args.no_authenticator:
-        accounts.extend(read_authenticator_accounts(args.data))
+        accounts.update(read_authenticator_accounts(args.data))
 
 
     if args.show_uri:
