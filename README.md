@@ -5,6 +5,7 @@ Many OTP apps don't support exporting their OTP secrets. Switching apps would re
 ## Supports
 
  - Google Authenticator
+ - Microsoft Authenticator
  - Authy
  - Duo Mobile
  - FreeOTP
@@ -13,9 +14,10 @@ Many OTP apps don't support exporting their OTP secrets. Switching apps would re
 
 Requires Python 3.6+ and a **rooted** Android phone.
 
-    usage: extract_otp_tokens.py [-h] [--no-authy] [--no-authenticator]
-                                 [--no-freeotp] [--no-duo] [--data DATA]
-                                 [--show-uri [SHOW_URI]] [--show-qr [SHOW_QR]]
+    usage: extract_otp_tokens.py [-h] [--no-authy] [--no-google-authenticator]
+                                 [--no-microsoft-authenticator] [--no-freeotp]
+                                 [--no-duo] [--data DATA] [--show-uri [SHOW_URI]]
+                                 [--show-qr [SHOW_QR]]
                                  [--andotp-backup ANDOTP_BACKUP]
 
     Extracts TOTP secrets from a rooted Android phone.
@@ -23,7 +25,10 @@ Requires Python 3.6+ and a **rooted** Android phone.
     optional arguments:
       -h, --help            show this help message and exit
       --no-authy            no Authy codes (default: False)
-      --no-authenticator    no Google Authenticator codes (default: False)
+      --no-google-authenticator
+                            no Google Authenticator codes (default: False)
+      --no-microsoft-authenticator
+                            no Microsoft Authenticator codes (default: False)
       --no-freeotp          no FreeOTP codes (default: False)
       --no-duo              no Duo codes (default: False)
       --data DATA           path to the app data folder (default: /data/data)

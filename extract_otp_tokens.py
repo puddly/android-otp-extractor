@@ -115,13 +115,11 @@ def read_duo_accounts(data_root):
         yield Account(account['name'], 6, 30, normalize_secret(account['otpGenerator']['otpSecret']))
 
 
-def read_authenticator_accounts(data_root):
+def read_google_authenticator_accounts(data_root):
     try:
         database = adb_read_file(data_root/'com.google.android.apps.authenticator2/databases/databases')
     except FileNotFoundError:
         return
-
-    print(database.read())
 
     with NamedTemporaryFile(delete=False) as temp_handle:       
         temp_handle.write(database.read())
@@ -130,6 +128,26 @@ def read_authenticator_accounts(data_root):
         connection = sqlite3.connect(temp_handle.name)
         cursor = connection.cursor()
         cursor.execute('SELECT email, secret FROM accounts;')
+
+        for name, secret in cursor.fetchall():
+            yield Account(name, 6, 30, normalize_secret(secret))
+    finally:
+        os.unlink(temp_handle.name)
+
+
+def read_microsoft_authenticator_accounts(data_root):
+    try:
+        database = adb_read_file(data_root/'com.azure.authenticator/databases/PhoneFactor')
+    except FileNotFoundError:
+        return
+
+    with NamedTemporaryFile(delete=False) as temp_handle:       
+        temp_handle.write(database.read())
+
+    try:
+        connection = sqlite3.connect(temp_handle.name)
+        cursor = connection.cursor()
+        cursor.execute('SELECT name, oath_secret_key FROM accounts WHERE account_type=0;')
 
         for name, secret in cursor.fetchall():
             yield Account(name, 6, 30, normalize_secret(secret))
@@ -195,7 +213,8 @@ def display_qr_codes(accounts):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Extracts TOTP secrets from a rooted Android phone.', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--no-authy', action='store_true', help='no Authy codes')
-    parser.add_argument('--no-authenticator', action='store_true', help='no Google Authenticator codes')
+    parser.add_argument('--no-google-authenticator', action='store_true', help='no Google Authenticator codes')
+    parser.add_argument('--no-microsoft-authenticator', action='store_true', help='no Microsoft Authenticator codes')
     parser.add_argument('--no-freeotp', action='store_true', help='no FreeOTP codes')
     parser.add_argument('--no-duo', action='store_true', help='no Duo codes')
     parser.add_argument('--data', type=Path, default=Path('/data/data/'), help='path to the app data folder')
@@ -224,8 +243,11 @@ if __name__ == '__main__':
     if not args.no_duo:
         accounts.update(read_duo_accounts(args.data))
 
-    if not args.no_authenticator:
-        accounts.update(read_authenticator_accounts(args.data))
+    if not args.no_google_authenticator:
+        accounts.update(read_google_authenticator_accounts(args.data))
+
+    if not args.no_microsoft_authenticator:
+        accounts.update(read_microsoft_authenticator_accounts(args.data))
 
 
     if args.show_uri:
