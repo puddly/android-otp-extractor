@@ -9,7 +9,7 @@ Sick of Authy and Google Authenticator? Want to migrate or backup your tokens bu
 
 ## Usage
 
-Requires Python 3 and a **rooted** Android phone.
+Requires Python 3.6+ and a **rooted** Android phone.
 
     usage: extract_otp_tokens.py [-h] [--no-authy] [--no-authenticator]
                                  [--data DATA] [--show-uri [SHOW_URI]]
@@ -31,4 +31,4 @@ Requires Python 3 and a **rooted** Android phone.
                             saves the accounts as an AndOTP backup file (default:
                             None)
 
-If your phone doesn't store app data in `/data/data/`, pass the root folder as the first argument. Once all the tokens are pulled from your phone they will be printed and you can optionally open your webbrowser to display them all as QR codes for easy scanning (the QR codes are generated in your browser).
+If your phone doesn't store app data in `/data/data/`, specify the correct path with the `--data` argument. The default action is to print the codes to STDOUT. If you want to display them in your webbrowser as QR codes or export them as an AndOTP backup file, see the above usage information.
