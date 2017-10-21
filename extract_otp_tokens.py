@@ -105,6 +105,16 @@ def read_freeotp_accounts(data_root):
         yield Account(account['label'], account['digits'], account['period'], secret)
 
 
+def read_duo_accounts(data_root):
+    try:
+        handle = adb_read_file(data_root/'com.duosecurity.duomobile/files/duokit/accounts.json')
+    except FileNotFoundError:
+        return
+
+    for account in json.load(handle):
+        yield Account(account['name'], 6, 30, normalize_secret(account['otpGenerator']['otpSecret']))
+
+
 def read_authenticator_accounts(data_root):
     try:
         database = adb_read_file(data_root/'com.google.android.apps.authenticator2/databases/databases')
@@ -187,6 +197,7 @@ if __name__ == '__main__':
     parser.add_argument('--no-authy', action='store_true', help='no Authy codes')
     parser.add_argument('--no-authenticator', action='store_true', help='no Google Authenticator codes')
     parser.add_argument('--no-freeotp', action='store_true', help='no FreeOTP codes')
+    parser.add_argument('--no-duo', action='store_true', help='no Duo codes')
     parser.add_argument('--data', type=Path, default=Path('/data/data/'), help='path to the app data folder')
     parser.add_argument('--show-uri', nargs='?', default=True, type=parse_bool, help='prints the accounts as otpauth:// URIs')
     parser.add_argument('--show-qr', nargs='?', default=False, const=True, type=parse_bool, help='displays the accounts as a local webpage with scannable QR codes')
@@ -209,6 +220,9 @@ if __name__ == '__main__':
 
     if not args.no_freeotp:
         accounts.update(read_freeotp_accounts(args.data))
+
+    if not args.no_duo:
+        accounts.update(read_duo_accounts(args.data))
 
     if not args.no_authenticator:
         accounts.update(read_authenticator_accounts(args.data))
