@@ -1,11 +1,15 @@
 import os
 import sys
 import json
+import shlex
 import base64
+import sqlite3
+import argparse
 import webbrowser
 import subprocess
 
 from io import BytesIO
+from pathlib import Path
 from tempfile import NamedTemporaryFile
 from xml.etree import ElementTree
 from collections import namedtuple
@@ -14,40 +18,57 @@ from urllib.parse import quote, urlencode
 Account = namedtuple('Account', ['name', 'digits', 'period', 'secret'])
 
 
+def parse_bool(value):
+    return value.lower() in {'y', 'yes', 'true'}
+
+
 def adb_read_file(path):
+    print('Reading file', path, file=sys.stderr)
+
+    process = subprocess.Popen(['adb', 'exec-out', 'su', '-c', 'cat', path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    stdout, stderr = process.communicate()
+
+    if stderr:
+        raise IOError(stderr)
+
+    if stdout.startswith(b'sh: ') and stdout.endswith(b'\n'):
+        error = stdout.partition(b'sh: ')[2].strip()
+
+        if error.endswith(b'No such file or directory'):
+            raise FileNotFoundError(path)
+        else:
+            raise IOError(error)
+
+    return BytesIO(stdout)
+
+
+def check_root():
     try:
-        return BytesIO(subprocess.check_output(['adb', 'exec-out', f'su -c "cat {path}"']))
+        output = subprocess.check_output(['adb', 'exec-out', 'su', '-c', 'printf', 'TEST'])
+        return output.strip() == b'TEST'
     except subprocess.CalledProcessError:
-        raise FileNotFoundError(path)
+        return False
 
 
 def otpauth_encode_account(account):
     return f'otpauth://totp/{quote(account.name)}?' + urlencode({
-        'secret': base64.b32encode(decode_secret(account.secret)).decode('ascii').rstrip('='),
+        'secret': account.secret,
         'digits': account.digits,
         'period': account.period
     })
 
 
-def decode_secret(secret):
-    if isinstance(secret, str):
-        secret = secret.encode('ascii')
-
-    if set(secret.lower()) <= set(b'0123456789abcdef'):
-        return bytes.fromhex(secret.decode('ascii'))
+def normalize_secret(secret):
+    if set(secret.lower()) <= set('0123456789abcdef'):
+        return base64.b32encode(bytes.fromhex(secret)).decode('ascii').rstrip('=')
     else:
-        # some secrets are base32, but have stripped padding
-        padding = b'=' * ((8 - (len(secret) % 8)) % 8)
-        return base64.b32decode(secret + padding, casefold=True)
+        return secret.upper().rstrip('=')
 
 
 def read_authy_accounts(data_root):
-    for path in [
-        os.path.join(data_root, 'com.authy.authy/shared_prefs/com.authy.storage.tokens.authenticator.xml'),
-        os.path.join(data_root, 'com.authy.authy/shared_prefs/com.authy.storage.tokens.authy.xml')
-    ]:
+    for pref_file in ['com.authy.storage.tokens.authenticator.xml', 'com.authy.storage.tokens.authy.xml']:
         try:
-            handle = adb_read_file(path)
+            handle = adb_read_file(data_root/'com.authy.authy/shared_prefs'/pref_file)
         except FileNotFoundError:
             continue
 
@@ -61,14 +82,16 @@ def read_authy_accounts(data_root):
                 period = 10
                 secret = account['secretSeed']
 
-            yield Account(account['name'], account['digits'], period, secret)
+            yield Account(account['name'], account['digits'], period, normalize_secret(secret))
 
 
 def read_authenticator_accounts(data_root):
     try:
-        database = adb_read_file(os.path.join(data_root, 'com.google.android.apps.authenticator2/databases/databases'))
+        database = adb_read_file(data_root/'com.google.android.apps.authenticator2/databases/databases')
     except FileNotFoundError:
         return
+
+    print(database.read())
 
     with NamedTemporaryFile(delete=False) as temp_handle:       
         temp_handle.write(database.read())
@@ -79,9 +102,20 @@ def read_authenticator_accounts(data_root):
         cursor.execute('SELECT email, secret FROM accounts;')
 
         for name, secret in cursor.fetchall():
-            yield Account(name, 6, 30, secret)
+            yield Account(name, 6, 30, normalize_secret(secret))
     finally:
         os.unlink(temp_handle.name)
+
+
+def export_andotp(accounts):
+    return json.dumps([{
+        'secret': a.secret,
+        'label': a.name,
+        'digits': a.digits,
+        'period': a.period,
+        'type': 'TOTP',
+        'algorithm': 'SHA1'
+    } for a in accounts])
 
 
 def display_qr_codes(accounts):
@@ -97,44 +131,67 @@ def display_qr_codes(accounts):
         <body>
             <script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js" integrity="sha384-Dr98ddmUw2QkdCarNQ+OL7xLty7cSxgR0T7v1tq4UErS/qLV0132sBYTolRAFuOV" crossorigin="anonymous"></script>
             <script>
-            let accounts = %s;
+                let accounts = %s;
 
-            for (let account of accounts) {
-                let heading = document.createElement('h2');
-                heading.textContent = decodeURIComponent(account.split('?')[0].split('/')[3]);
-                document.body.appendChild(heading);
+                for (let account of accounts) {
+                    let heading = document.createElement('h2');
+                    heading.textContent = decodeURIComponent(account.split('?')[0].split('/')[3]);
+                    document.body.appendChild(heading);
 
-                let image = document.createElement('img');
-                image.style.width = '100%%';
-                image.style.maxWidth = '500px';
-                image.style.height = 'auto';
-                document.body.appendChild(image);
+                    let image = document.createElement('img');
+                    image.style.width = '100%%';
+                    image.style.maxWidth = '500px';
+                    image.style.height = 'auto';
+                    document.body.appendChild(image);
 
-                let qr_image = new QRious({
-                    element: image,
-                    value: account,
-                    size: 500
-                });
-            }
+                    let qr_image = new QRious({
+                        element: image,
+                        value: account,
+                        size: 500
+                    });
+                }
             </script>
         </body>''' % json.dumps([otpauth_encode_account(a) for a in accounts])
 
-    accounts_encoded_html = 'data:text/html;base64,' + base64.b64encode(accounts_html.encode('utf-8')).decode('ascii')
-    webbrowser.open(accounts_encoded_html)
+    accounts_encoded_html = b'data:text/html;base64,' + base64.b64encode(accounts_html.encode('utf-8'))
+    webbrowser.open(accounts_encoded_html.decode('ascii'))
 
 
 if __name__ == '__main__':
-    if len(sys.argv) == 1:
-        data_root = '/data/data/'
-    else:
-        data_root = sys.argv[1]
+    parser = argparse.ArgumentParser(description='Extracts TOTP secrets from a rooted Android phone.', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('--no-authy', action='store_true', help='no Authy codes')
+    parser.add_argument('--no-authenticator', action='store_true', help='no Google Authenticator codes')
+    parser.add_argument('--data', type=Path, default=Path('/data/data/'), help='path to the app data folder')
+    parser.add_argument('--show-uri', nargs='?', default=True, type=parse_bool, help='prints the accounts as otpauth:// URIs')
+    parser.add_argument('--show-qr', nargs='?', default=False, type=parse_bool, help='displays the accounts as a local webpage with scannable QR codes')
+    parser.add_argument('--andotp-backup', type=Path, help='saves the accounts as an AndOTP backup file')
+
+    args = parser.parse_args()
+
+
+    print('Checking for root. You might have to grant ADB temporary root access.', file=sys.stderr)
+
+    if not check_root():
+        print('Root not found!', file=sys.stderr)
+        sys.exit(1)
+
 
     accounts = []
-    accounts.extend(read_authy_accounts(data_root))
-    accounts.extend(read_authenticator_accounts(data_root))
 
-    for account in accounts:
-        print(otpauth_encode_account(account))
+    if not args.no_authy:
+        accounts.extend(read_authy_accounts(args.data))
 
-    if input('Do you want to see the QR codes in your web browser?').lower() in {'yes', 'y'}:
+    if not args.no_authenticator:
+        accounts.extend(read_authenticator_accounts(args.data))
+
+
+    if args.show_uri:
+        for account in accounts:
+            print(otpauth_encode_account(account))
+
+    if args.show_qr:
         display_qr_codes(accounts)
+
+    if args.andotp_backup:
+        with open(args.andotp_backup, 'wb') as handle:
+            handle.write(export_andotp(accounts).encode('utf-8'))
