@@ -31,7 +31,7 @@ def adb_read_file(path):
     if stderr:
         raise IOError(stderr)
 
-    if stdout.startswith(b'sh: ') and stdout.endswith(b'\n'):
+    if stdout.startswith(b'sh: '):
         error = stdout.partition(b'sh: ')[2].strip()
 
         if error.endswith(b'No such file or directory'):
@@ -121,6 +121,11 @@ def export_andotp(accounts):
 def display_qr_codes(accounts):
     accounts_html = '''
         <!doctype html>
+
+        <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+        <meta http-equiv="Pragma" content="no-cache" />
+        <meta http-equiv="Expires" content="0" />
+
         <title>OTP QR Codes</title>
         <style type="text/css">
             body {
