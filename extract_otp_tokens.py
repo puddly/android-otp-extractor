@@ -25,7 +25,7 @@ def parse_bool(value):
 def adb_read_file(path):
     print('Reading file', path, file=sys.stderr)
 
-    process = subprocess.Popen(['adb', 'exec-out', 'su', '-c', 'cat', path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    process = subprocess.Popen(['adb', 'exec-out', 'su', '-c', 'cat "{}"'.format(path)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     stdout, stderr = process.communicate()
 
     if stderr:
@@ -44,7 +44,7 @@ def adb_read_file(path):
 
 def check_root():
     try:
-        output = subprocess.check_output(['adb', 'exec-out', 'su', '-c', 'printf', 'TEST'])
+        output = subprocess.check_output(['adb', 'exec-out', 'su', '-c', 'printf TEST'])
         return output.strip() == b'TEST'
     except subprocess.CalledProcessError:
         return False
