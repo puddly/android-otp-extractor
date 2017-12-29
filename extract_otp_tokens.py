@@ -25,26 +25,33 @@ def parse_bool(value):
 def adb_read_file(path):
     print('Reading file', path, file=sys.stderr)
 
-    process = subprocess.Popen(['adb', 'exec-out', 'su', '-c', 'cat "{}"'.format(path)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    process = subprocess.Popen(['adb', 'shell', 'su', '-c', 'cat "{}" | base64'.format(path)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     stdout, stderr = process.communicate()
 
-    if stderr:
-        raise IOError(stderr)
-
     if stdout.startswith(b'sh: '):
-        error = stdout.partition(b'sh: ')[2].strip()
+        error_out = stdout
+    elif stderr.startswith(b'sh: '):
+        error_out = stderr
+    else:
+        error_out = None
+
+    if error_out is not None:
+        error = error_out.partition(b'sh: ')[2].strip()
 
         if error.endswith(b'No such file or directory'):
             raise FileNotFoundError(path)
         else:
             raise IOError(error)
 
-    return BytesIO(stdout)
+    if stderr:
+        raise IOError(stderr)
+
+    return BytesIO(base64.b64decode(stdout))
 
 
 def check_root():
     try:
-        output = subprocess.check_output(['adb', 'exec-out', 'su', '-c', 'printf TEST'])
+        output = subprocess.check_output(['adb', 'shell', 'su', '-c', 'printf TEST'])
         return output.strip() == b'TEST'
     except subprocess.CalledProcessError:
         return False
