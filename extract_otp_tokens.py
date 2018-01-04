@@ -25,26 +25,35 @@ def parse_bool(value):
 def adb_read_file(path):
     print('Reading file', path, file=sys.stderr)
 
-    process = subprocess.Popen(['adb', 'exec-out', 'su', '-c', 'cat "{}"'.format(path)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    stdout, stderr = process.communicate()
+    # `adb exec-out` doesn't work properly on some devices. We have to fall back to `adb shell`,
+    # which takes at least 600ms to exit even if the actual command runs quickly.
+    # Reading a unique, non-existent file prints a predictable error message that delimits the end of
+    # the stream, allowing us to let `adb shell` finish up its stuff in the background.
+    lines = []
+    process = subprocess.Popen(
+        args=['adb', 'shell', 'su', '-c', f'base64 {shlex.quote(str(path))} 3bb22bb739c29e435151cb38'],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT
+    )
 
-    if stderr:
-        raise IOError(stderr)
+    for line in process.stdout:
+        if not line.startswith(b'base64: '):
+            lines.append(line)
+            continue
 
-    if stdout.startswith(b'sh: '):
-        error = stdout.partition(b'sh: ')[2].strip()
+        message = line.partition(b'base64: ')[2].strip()
+        process.kill()
 
-        if error.endswith(b'No such file or directory'):
+        if message.startswith(b'3bb22bb739c29e435151cb38'):
+            return BytesIO(base64.b64decode(b''.join(lines)))
+        elif message.endswith(b'No such file or directory'):
             raise FileNotFoundError(path)
         else:
-            raise IOError(error)
-
-    return BytesIO(stdout)
+            raise IOError(message)
 
 
 def check_root():
     try:
-        output = subprocess.check_output(['adb', 'exec-out', 'su', '-c', 'printf TEST'])
+        output = subprocess.check_output(['adb', 'shell', 'su', '-c', 'printf TEST'])
         return output.strip() == b'TEST'
     except subprocess.CalledProcessError:
         return False
