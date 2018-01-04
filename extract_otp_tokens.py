@@ -31,21 +31,21 @@ def adb_read_file(path):
     # the stream, allowing us to let `adb shell` finish up its stuff in the background.
     lines = []
     process = subprocess.Popen(
-        args=['adb', 'shell', 'su', '-c', f'base64 {shlex.quote(str(path))} 3bb22bb739c29e435151cb38'],
+        args=['adb', 'shell', 'su', '-c', f'toybox base64 {shlex.quote(str(path))} 3bb22bb739c29e435151cb38'],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT
     )
 
     for line in process.stdout:
-        if not line.startswith(b'base64: '):
+        if b'base64: ' not in line:
             lines.append(line)
             continue
 
         message = line.partition(b'base64: ')[2].strip()
         process.kill()
 
-        if message.startswith(b'3bb22bb739c29e435151cb38'):
+        if b'3bb22bb739c29e435151cb38' in message:
             return BytesIO(base64.b64decode(b''.join(lines)))
-        elif message.endswith(b'No such file or directory'):
+        elif b'No such file or directory' in message:
             raise FileNotFoundError(path)
         else:
             raise IOError(message)
