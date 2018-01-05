@@ -164,6 +164,36 @@ def read_microsoft_authenticator_accounts(data_root):
         os.unlink(temp_handle.name)
 
 
+def read_andotp_accounts(data_root):
+    print('''
+AndOTP encrypts its database with a key stored in the Android Keystore.
+There is currently no way to interface with the Android Keystore and decrypt its database using just `adb` commands.
+You will have to manually create a backup with AndOTP, which I can then read.
+''')
+
+    subprocess.check_output(['adb', 'shell', 'su', '-c', "am start -n org.shadowice.flocke.andotp/.Activities.BackupActivity"])
+    backup_path = input('Enter the backup path (default: /sdcard/Download/otp_accounts.json): ') or '/sdcard/Download/otp_accounts.json'
+
+    delete = input('Do you want to delete the backup afterwards (default: no)? ').lower() in ('yes', 'y')
+
+    try:
+        backup_data = adb_read_file(backup_path)
+    except FileNotFoundError:
+        print('Invalid path!', file=sys.stderr)
+        return
+
+    backup = json.load(backup_data)
+
+    for account in backup:
+        assert account['type'] == 'TOTP'
+        assert account['algorithm'] == 'SHA1'
+
+        yield Account(account['label'], account['digits'], account['period'], normalize_secret(account['secret']))
+
+    if delete:
+        subprocess.check_output(['adb', 'shell', 'rm', backup])
+
+
 def export_andotp(accounts):
     return json.dumps([{
         'secret': a.secret,
@@ -221,11 +251,12 @@ def display_qr_codes(accounts):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Extracts TOTP secrets from a rooted Android phone.', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('--andotp', action='store_true', help='parse AndOTP codes from a backup')
     parser.add_argument('--no-authy', action='store_true', help='no Authy codes')
+    parser.add_argument('--no-duo', action='store_true', help='no Duo codes')
+    parser.add_argument('--no-freeotp', action='store_true', help='no FreeOTP codes')
     parser.add_argument('--no-google-authenticator', action='store_true', help='no Google Authenticator codes')
     parser.add_argument('--no-microsoft-authenticator', action='store_true', help='no Microsoft Authenticator codes')
-    parser.add_argument('--no-freeotp', action='store_true', help='no FreeOTP codes')
-    parser.add_argument('--no-duo', action='store_true', help='no Duo codes')
     parser.add_argument('--data', type=Path, default=Path('/data/data/'), help='path to the app data folder')
     parser.add_argument('--show-uri', nargs='?', default=True, type=parse_bool, help='prints the accounts as otpauth:// URIs')
     parser.add_argument('--show-qr', nargs='?', default=False, const=True, type=parse_bool, help='displays the accounts as a local webpage with scannable QR codes')
@@ -243,14 +274,17 @@ if __name__ == '__main__':
 
     accounts = set()
 
+    if args.andotp:
+        accounts.update(read_andotp_accounts(args.data))
+
     if not args.no_authy:
         accounts.update(read_authy_accounts(args.data))
 
-    if not args.no_freeotp:
-        accounts.update(read_freeotp_accounts(args.data))
-
     if not args.no_duo:
         accounts.update(read_duo_accounts(args.data))
+
+    if not args.no_freeotp:
+        accounts.update(read_freeotp_accounts(args.data))
 
     if not args.no_google_authenticator:
         accounts.update(read_google_authenticator_accounts(args.data))

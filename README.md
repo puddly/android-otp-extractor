@@ -9,28 +9,30 @@ Many OTP apps don't support exporting their OTP secrets. Switching apps would re
  - Authy
  - Duo Mobile
  - FreeOTP
+ - AndOTP (user-assisted)
 
 ## Usage
 
 Requires Python 3.6+ and a **rooted** Android phone.
 
-    usage: extract_otp_tokens.py [-h] [--no-authy] [--no-google-authenticator]
-                                 [--no-microsoft-authenticator] [--no-freeotp]
-                                 [--no-duo] [--data DATA] [--show-uri [SHOW_URI]]
-                                 [--show-qr [SHOW_QR]]
+    usage: extract_otp_tokens.py [-h] [--andotp] [--no-authy] [--no-duo]
+                                 [--no-freeotp] [--no-google-authenticator]
+                                 [--no-microsoft-authenticator] [--data DATA]
+                                 [--show-uri [SHOW_URI]] [--show-qr [SHOW_QR]]
                                  [--andotp-backup ANDOTP_BACKUP]
 
     Extracts TOTP secrets from a rooted Android phone.
 
     optional arguments:
       -h, --help            show this help message and exit
+      --andotp              parse AndOTP codes from a backup (default: False)
       --no-authy            no Authy codes (default: False)
+      --no-duo              no Duo codes (default: False)
+      --no-freeotp          no FreeOTP codes (default: False)
       --no-google-authenticator
                             no Google Authenticator codes (default: False)
       --no-microsoft-authenticator
                             no Microsoft Authenticator codes (default: False)
-      --no-freeotp          no FreeOTP codes (default: False)
-      --no-duo              no Duo codes (default: False)
       --data DATA           path to the app data folder (default: /data/data)
       --show-uri [SHOW_URI]
                             prints the accounts as otpauth:// URIs (default: True)
@@ -40,4 +42,4 @@ Requires Python 3.6+ and a **rooted** Android phone.
                             saves the accounts as an AndOTP backup file (default:
                             None)
 
-If your phone doesn't store app data in `/data/data/`, specify the correct path with the `--data` argument. The default action is to print the codes to STDOUT. If you want to display them in your webbrowser as QR codes or export them as an AndOTP backup file, see the above usage information.
+If your phone doesn't store app data in `/data/data/`, specify the correct path with the `--data` argument. The default action is to print the codes to STDOUT. If you want to display them locally in your webbrowser as QR codes or export them as an AndOTP backup file, see the above usage information.
