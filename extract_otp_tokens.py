@@ -31,7 +31,7 @@ def adb_read_file(path):
     # the stream, allowing us to let `adb shell` finish up its stuff in the background.
     lines = []
     process = subprocess.Popen(
-        args=['adb', 'shell', 'su', '-c', f'toybox base64 {shlex.quote(str(path))} 3bb22bb739c29e435151cb38'],
+        args=['adb', 'shell', f'su -c "toybox base64 {shlex.quote(str(path))} 3bb22bb739c29e435151cb38"'],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT
     )
 
@@ -53,7 +53,7 @@ def adb_read_file(path):
 
 def check_root():
     try:
-        output = subprocess.check_output(['adb', 'shell', 'su', '-c', 'printf TEST'])
+        output = subprocess.check_output(['adb', 'shell', 'su -c "printf TEST"'])
         return output.strip() == b'TEST'
     except subprocess.CalledProcessError:
         return False
