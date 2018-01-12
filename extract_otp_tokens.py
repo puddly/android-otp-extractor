@@ -223,20 +223,22 @@ def display_qr_codes(accounts):
         <body>
             <script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js" integrity="sha384-Dr98ddmUw2QkdCarNQ+OL7xLty7cSxgR0T7v1tq4UErS/qLV0132sBYTolRAFuOV" crossorigin="anonymous"></script>
             <script>
-                let accounts = %s;
+                var accounts = %s;
 
-                for (let account of accounts) {
-                    let heading = document.createElement('h2');
+                for (var i = 0; i < accounts.length; i++) {
+                    var account = accounts[i];
+
+                    var heading = document.createElement('h2');
                     heading.textContent = decodeURIComponent(account.split('?')[0].split('/')[3]);
                     document.body.appendChild(heading);
 
-                    let image = document.createElement('img');
+                    var image = document.createElement('img');
                     image.style.width = '100%%';
                     image.style.maxWidth = '500px';
                     image.style.height = 'auto';
                     document.body.appendChild(image);
 
-                    let qr_image = new QRious({
+                    var qr_image = new QRious({
                         element: image,
                         value: account,
                         size: 500
