@@ -22,6 +22,20 @@ def parse_bool(value):
     return value.lower() in {'y', 'yes', 'true'}
 
 
+def adb_list_dir(path):
+    process = subprocess.Popen(
+            args=['adb', 'shell', f'su -c ls', path],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT
+            )
+    output = process.communicate()
+    output = str(output[0], 'utf-8').strip(), output[1]
+    if 'No suck file or directory' in output[0]:
+        raise FileNotFoundError(path)
+    elif output[1] is not None:
+        raise IOError(output[0])
+    return [filename.strip() for filename in output[0].split('\n')] # a list of filenames
+
+
 def adb_read_file(path):
     print('Reading file', path, file=sys.stderr)
 
@@ -194,13 +208,30 @@ You will have to manually create a backup with AndOTP, which I can then read.
         subprocess.check_output(['adb', 'shell', 'rm', backup])
 
 
+def read_steam_authenticator_accounts(data_root):
+    accounts_folder = 'com.valvesoftware.android.steam.community/files'
+    try:
+        account_names = adb_list_dir(data_root/accounts_folder)
+    except FileNotFoundError:
+        return
+
+    for acc in account_names:
+        handle = adb_read_file(data_root/accounts_folder/acc)
+        json_file = json.loads(handle.read())
+
+        # getting data for the account
+        account_name = json_file['account_name']
+        secret = base64.b32encode(base64.b64decode(json_file['shared_secret']))
+        yield Account('steam-' + account_name, 5, 30, secret)
+
+
 def export_andotp(accounts):
     return json.dumps([{
-        'secret': a.secret,
+        'secret': a.secret if not a.name.startswith('steam-') else str(a.secret),
         'label': a.name,
         'digits': a.digits,
         'period': a.period,
-        'type': 'TOTP',
+        'type': 'TOTP' if not a.name.startswith('steam-') else 'STEAM',
         'algorithm': 'SHA1'
     } for a in accounts])
 
@@ -259,6 +290,7 @@ if __name__ == '__main__':
     parser.add_argument('--no-freeotp', action='store_true', help='no FreeOTP codes')
     parser.add_argument('--no-google-authenticator', action='store_true', help='no Google Authenticator codes')
     parser.add_argument('--no-microsoft-authenticator', action='store_true', help='no Microsoft Authenticator codes')
+    parser.add_argument('--no-steam-authenticator', action='store_true', help='no Steam Authenticator codes')
     parser.add_argument('--data', type=Path, default=Path('/data/data/'), help='path to the app data folder')
     parser.add_argument('--show-uri', nargs='?', default=True, type=parse_bool, help='prints the accounts as otpauth:// URIs')
     parser.add_argument('--show-qr', nargs='?', default=False, const=True, type=parse_bool, help='displays the accounts as a local webpage with scannable QR codes')
@@ -294,6 +326,8 @@ if __name__ == '__main__':
     if not args.no_microsoft_authenticator:
         accounts.update(read_microsoft_authenticator_accounts(args.data))
 
+    if not args.no_steam_authenticator:
+        accounts.update(read_steam_authenticator_accounts(args.data))
 
     if args.show_uri:
         for account in accounts:
