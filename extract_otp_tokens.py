@@ -227,7 +227,7 @@ def read_steam_authenticator_accounts(data_root):
 
 def export_andotp(accounts):
     return json.dumps([{
-        'secret': a.secret if not a.name.startswith('steam-') else str(a.secret),
+        'secret': a.secret if not a.name.startswith('steam-') else str(a.secret, 'utf-8'),
         'label': a.name,
         'digits': a.digits,
         'period': a.period,
