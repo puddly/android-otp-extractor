@@ -17,8 +17,8 @@ Requires Python 3.6+ and a **rooted** Android phone.
 
     usage: extract_otp_tokens.py [-h] [--andotp] [--no-authy] [--no-duo]
                                  [--no-freeotp] [--no-google-authenticator]
-                                 [--no-microsoft-authenticator] [--data DATA]
-                                 [--show-uri [SHOW_URI]] [--show-qr [SHOW_QR]]
+                                 [--no-microsoft-authenticator] [--no-steam-authenticator]
+                                 [--data DATA] [--no-show-uri] [--show-qr]
                                  [--andotp-backup ANDOTP_BACKUP]
 
     Extracts TOTP secrets from a rooted Android phone.
@@ -33,10 +33,12 @@ Requires Python 3.6+ and a **rooted** Android phone.
                             no Google Authenticator codes (default: False)
       --no-microsoft-authenticator
                             no Microsoft Authenticator codes (default: False)
+      --no-steam-authenticator
+                            no Steam Authenticator codes (default: False)
+                            
       --data DATA           path to the app data folder (default: /data/data)
-      --show-uri [SHOW_URI]
-                            prints the accounts as otpauth:// URIs (default: True)
-      --show-qr [SHOW_QR]   displays the accounts as a local webpage with
+      --no-show-uri         disables printing the accounts as otpauth:// URIs
+      --show-qr             displays the accounts as a local webpage with
                             scannable QR codes (default: False)
       --andotp-backup ANDOTP_BACKUP
                             saves the accounts as an AndOTP backup file (default:
