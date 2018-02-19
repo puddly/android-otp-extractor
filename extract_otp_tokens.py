@@ -20,7 +20,7 @@ Account = namedtuple('Account', ['name', 'digits', 'period', 'secret'])
 
 def adb_list_dir(path):
     process = subprocess.Popen(
-            args=['adb', 'shell', f'su -c ls', path],
+            args=['adb', 'shell', f'su -c ls {shlex.quote(path)}'],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT
             )
     output = process.communicate()
