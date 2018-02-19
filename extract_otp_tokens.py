@@ -15,21 +15,36 @@ from xml.etree import ElementTree
 from collections import namedtuple
 from urllib.parse import quote, urlencode
 
-Account = namedtuple('Account', ['name', 'digits', 'period', 'secret'])
+Account = namedtuple('Account', ['name', 'digits', 'period', 'secret', 'type', 'algorithm'])
 
 
 def adb_list_dir(path):
+    print('Listing directory', path, file=sys.stderr)
+
+    # `adb exec-out` doesn't work properly on some devices. We have to fall back to `adb shell`,
+    # which takes at least 600ms to exit even if the actual command runs quickly.
+    # Reading a unique, non-existent file prints a predictable error message that delimits the end of
+    # the stream, allowing us to let `adb shell` finish up its stuff in the background.
+    lines = []
     process = subprocess.Popen(
-            args=['adb', 'shell', f'su -c ls {shlex.quote(path)}'],
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT
-            )
-    message, err = process.communicate()
-    message = str(message, 'utf-8').strip()
-    if 'No such file or directory' in message:
-        raise FileNotFoundError(path)
-    elif err is not None:
-        raise IOError(message)
-    return [filename.strip() for filename in message.split('\n')] # a list of filenames
+        args=['adb', 'shell', f'su -c "ls -1 {shlex.quote(str(path))}; ls /3bb22bb739c29e435151cb38"'],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT
+    )
+
+    for line in process.stdout:
+        if b'ls: ' not in line:
+            lines.append(line)
+            continue
+
+        message = line.partition(b'ls: ')[2].strip()
+        process.kill()
+
+        if b'3bb22bb739c29e435151cb38' in message:
+            return [path/l[:-1].decode('utf-8') for l in lines]
+        elif b'No such file or directory' in message:
+            raise FileNotFoundError(path)
+        else:
+            raise IOError(message)
 
 
 def adb_read_file(path):
@@ -41,7 +56,7 @@ def adb_read_file(path):
     # the stream, allowing us to let `adb shell` finish up its stuff in the background.
     lines = []
     process = subprocess.Popen(
-        args=['adb', 'shell', f'su -c "toybox base64 {shlex.quote(str(path))} 3bb22bb739c29e435151cb38"'],
+        args=['adb', 'shell', f'su -c "toybox base64 {shlex.quote(str(path))} /3bb22bb739c29e435151cb38"'],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT
     )
 
@@ -61,19 +76,13 @@ def adb_read_file(path):
             raise IOError(message)
 
 
-def check_root():
-    try:
-        output = subprocess.check_output(['adb', 'shell', 'su -c "printf TEST"'])
-        return output.strip() == b'TEST'
-    except subprocess.CalledProcessError:
-        return False
-
-
 def otpauth_encode_account(account):
     return f'otpauth://totp/{quote(account.name)}?' + urlencode({
         'secret': account.secret,
         'digits': account.digits,
-        'period': account.period
+        'period': account.period,
+        'type': account.type,
+        'algorithm': account.algorithm,
     })
 
 
@@ -101,7 +110,7 @@ def read_authy_accounts(data_root):
                 period = 10
                 secret = account['secretSeed']
 
-            yield Account(account['name'], account['digits'], period, normalize_secret(secret))
+            yield Account(account['name'], account['digits'], period, normalize_secret(secret), 'TOTP', 'SHA1')
 
 
 def read_freeotp_accounts(data_root):
@@ -121,7 +130,7 @@ def read_freeotp_accounts(data_root):
 
         secret = normalize_secret(bytes([b & 0xff for b in account['secret']]).hex())
 
-        yield Account(account['label'], account['digits'], account['period'], secret)
+        yield Account(account['label'], account['digits'], account['period'], secret, 'TOTP', 'SHA1')
 
 
 def read_duo_accounts(data_root):
@@ -131,7 +140,7 @@ def read_duo_accounts(data_root):
         return
 
     for account in json.load(handle):
-        yield Account(account['name'], 6, 30, normalize_secret(account['otpGenerator']['otpSecret']))
+        yield Account(account['name'], 6, 30, normalize_secret(account['otpGenerator']['otpSecret']), 'TOTP', 'SHA1')
 
 
 def read_google_authenticator_accounts(data_root):
@@ -149,7 +158,7 @@ def read_google_authenticator_accounts(data_root):
         cursor.execute('SELECT email, secret FROM accounts;')
 
         for name, secret in cursor.fetchall():
-            yield Account(name, 6, 30, normalize_secret(secret))
+            yield Account(name, 6, 30, normalize_secret(secret), 'TOTP', 'SHA1')
     finally:
         os.unlink(temp_handle.name)
 
@@ -169,7 +178,7 @@ def read_microsoft_authenticator_accounts(data_root):
         cursor.execute('SELECT name, oath_secret_key FROM accounts WHERE account_type=0;')
 
         for name, secret in cursor.fetchall():
-            yield Account(name, 6, 30, normalize_secret(secret))
+            yield Account(name, 6, 30, normalize_secret(secret), 'TOTP', 'SHA1')
     finally:
         os.unlink(temp_handle.name)
 
@@ -195,10 +204,7 @@ You will have to manually create a backup with AndOTP, which I can then read.
     backup = json.load(backup_data)
 
     for account in backup:
-        assert account['type'] == 'TOTP'
-        assert account['algorithm'] == 'SHA1'
-
-        yield Account(account['label'], account['digits'], account['period'], normalize_secret(account['secret']))
+        yield Account(account['label'], account['digits'], account['period'], normalize_secret(account['secret']), account['type'], account['algorithm'])
 
     if delete:
         subprocess.check_output(['adb', 'shell', 'rm', backup])
@@ -207,18 +213,16 @@ You will have to manually create a backup with AndOTP, which I can then read.
 def read_steam_authenticator_accounts(data_root):
     accounts_folder = 'com.valvesoftware.android.steam.community/files'
     try:
-        account_names = adb_list_dir(data_root/accounts_folder)
+        account_files = adb_list_dir(data_root/accounts_folder)
     except FileNotFoundError:
         return
 
-    for acc in account_names:
-        handle = adb_read_file(data_root/accounts_folder/acc)
-        json_file = json.loads(handle.read())
+    for account_file in account_files:
+        account_json = json.load(adb_read_file(account_file))
 
-        # getting data for the account
-        account_name = json_file['account_name']
-        secret = base64.b32encode(base64.b64decode(json_file['shared_secret']))
-        yield Account('steam-' + account_name, 5, 30, secret)
+        secret = normalize_secret(base64.b32encode(base64.b64decode(account_json['shared_secret'])))
+
+        yield Account(account_json['account_name'], 5, 30, secret, 'STEAM', 'SHA1')
 
 
 def export_andotp(accounts):
@@ -227,7 +231,7 @@ def export_andotp(accounts):
         'label': a.name,
         'digits': a.digits,
         'period': a.period,
-        'type': 'TOTP' if not a.name.startswith('steam-') else 'STEAM',
+        'type': a.type,
         'algorithm': 'SHA1'
     } for a in accounts])
 
@@ -295,10 +299,10 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
 
-    print('Checking for root. You might have to grant ADB temporary root access.', file=sys.stderr)
+    print(f'Checking for root by listing the contents of {args.data}. You might have to grant ADB temporary root access.', file=sys.stderr)
 
-    if not check_root():
-        print('Root not found!', file=sys.stderr)
+    if not adb_list_dir(args.data):
+        print('Root not found or data directory is incorrect!', file=sys.stderr)
         sys.exit(1)
 
 
