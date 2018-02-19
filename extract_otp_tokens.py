@@ -18,10 +18,6 @@ from urllib.parse import quote, urlencode
 Account = namedtuple('Account', ['name', 'digits', 'period', 'secret'])
 
 
-def parse_bool(value):
-    return value.lower() in {'y', 'yes', 'true'}
-
-
 def adb_read_file(path):
     print('Reading file', path, file=sys.stderr)
 
@@ -260,8 +256,8 @@ if __name__ == '__main__':
     parser.add_argument('--no-google-authenticator', action='store_true', help='no Google Authenticator codes')
     parser.add_argument('--no-microsoft-authenticator', action='store_true', help='no Microsoft Authenticator codes')
     parser.add_argument('--data', type=Path, default=Path('/data/data/'), help='path to the app data folder')
-    parser.add_argument('--show-uri', nargs='?', default=True, type=parse_bool, help='prints the accounts as otpauth:// URIs')
-    parser.add_argument('--show-qr', nargs='?', default=False, const=True, type=parse_bool, help='displays the accounts as a local webpage with scannable QR codes')
+    parser.add_argument('--no-show-uri', action='store_true', help='disable printing the accounts as otpauth:// URIs')
+    parser.add_argument('--show-qr', action='store_true', help='displays the accounts as a local webpage with scannable QR codes')
     parser.add_argument('--andotp-backup', type=Path, help='saves the accounts as an AndOTP backup file')
 
     args = parser.parse_args()
@@ -295,7 +291,7 @@ if __name__ == '__main__':
         accounts.update(read_microsoft_authenticator_accounts(args.data))
 
 
-    if args.show_uri:
+    if not args.no_show_uri:
         for account in accounts:
             print(otpauth_encode_account(account))
 
