@@ -23,13 +23,13 @@ def adb_list_dir(path):
             args=['adb', 'shell', f'su -c ls {shlex.quote(path)}'],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT
             )
-    output = process.communicate()
-    output = str(output[0], 'utf-8').strip(), output[1]
-    if 'No suck file or directory' in output[0]:
+    message, err = process.communicate()
+    message = str(message, 'utf-8').strip()
+    if 'No such file or directory' in message:
         raise FileNotFoundError(path)
-    elif output[1] is not None:
-        raise IOError(output[0])
-    return [filename.strip() for filename in output[0].split('\n')] # a list of filenames
+    elif err is not None:
+        raise IOError(message)
+    return [filename.strip() for filename in message.split('\n')] # a list of filenames
 
 
 def adb_read_file(path):
