@@ -9,7 +9,7 @@ import webbrowser
 import subprocess
 
 from io import BytesIO
-from pathlib import Path
+from pathlib import PurePosixPath, Path
 from tempfile import NamedTemporaryFile
 from xml.etree import ElementTree
 from collections import namedtuple
@@ -291,7 +291,7 @@ if __name__ == '__main__':
     parser.add_argument('--no-google-authenticator', action='store_true', help='no Google Authenticator codes')
     parser.add_argument('--no-microsoft-authenticator', action='store_true', help='no Microsoft Authenticator codes')
     parser.add_argument('--no-steam-authenticator', action='store_true', help='no Steam Authenticator codes')
-    parser.add_argument('--data', type=Path, default=Path('/data/data/'), help='path to the app data folder')
+    parser.add_argument('--data', type=PurePosixPath, default=PurePosixPath('/data/data/'), help='path to the app data folder')
     parser.add_argument('--no-show-uri', action='store_true', help='disable printing the accounts as otpauth:// URIs')
     parser.add_argument('--show-qr', action='store_true', help='displays the accounts as a local webpage with scannable QR codes')
     parser.add_argument('--andotp-backup', type=Path, help='saves the accounts as an AndOTP backup file')
