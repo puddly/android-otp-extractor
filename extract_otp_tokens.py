@@ -1,9 +1,11 @@
 import os
 import sys
+import time
 import json
 import shlex
 import base64
 import sqlite3
+import tempfile
 import argparse
 import webbrowser
 import subprocess
@@ -14,6 +16,7 @@ from tempfile import NamedTemporaryFile
 from xml.etree import ElementTree
 from collections import namedtuple
 from urllib.parse import quote, urlencode
+from urllib.request import pathname2url
 
 Account = namedtuple('Account', ['name', 'digits', 'period', 'secret', 'type', 'algorithm'])
 
@@ -149,7 +152,7 @@ def read_google_authenticator_accounts(data_root):
     except FileNotFoundError:
         return
 
-    with NamedTemporaryFile(delete=False) as temp_handle:       
+    with NamedTemporaryFile(delete=False, suffix='.html') as temp_handle:       
         temp_handle.write(database.read())
 
     try:
@@ -227,7 +230,7 @@ def read_steam_authenticator_accounts(data_root):
 
 def export_andotp(accounts):
     return json.dumps([{
-        'secret': a.secret if not a.name.startswith('steam-') else str(a.secret, 'utf-8'),
+        'secret': a.secret if not a.name.startswith('steam-') else a.secret.decode('utf-8'),
         'label': a.name,
         'digits': a.digits,
         'period': a.period,
@@ -278,8 +281,16 @@ def display_qr_codes(accounts):
             </script>
         </body>''' % json.dumps([otpauth_encode_account(a) for a in accounts])
 
-    accounts_encoded_html = b'data:text/html;base64,' + base64.b64encode(accounts_html.encode('utf-8'))
-    webbrowser.open(accounts_encoded_html.decode('ascii'))
+    # Temporary files are only readable by the current user (mode 0600)
+    with tempfile.NamedTemporaryFile(delete=False) as handle:
+        handle.write(accounts_html.encode('utf-8'))
+
+    try:
+        webbrowser.open(f'file:{pathname2url(handle.name)}')
+        time.sleep(10)  # webbrowser.open exits immediately so we should wait before deleting the file
+    finally:
+        os.remove(handle.name)
+
 
 
 if __name__ == '__main__':
