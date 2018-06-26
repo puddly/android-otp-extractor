@@ -162,6 +162,8 @@ def read_google_authenticator_accounts(data_root):
 
         for name, secret in cursor.fetchall():
             yield Account(name, 6, 30, normalize_secret(secret), 'TOTP', 'SHA1')
+
+        connection.close()
     finally:
         os.unlink(temp_handle.name)
 
