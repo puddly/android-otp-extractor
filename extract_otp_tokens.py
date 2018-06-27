@@ -25,16 +25,14 @@ logging.basicConfig(format='[%(asctime)s] %(levelname)8s [%(funcName)s:%(lineno)
 logger = logging.getLogger(__name__)
 
 
-def adb_list_dir(path):
-    logger.debug('Listing directory %s', path)
-
+def adb_fast_run(command, prefix, *, sentinel='3bb22bb739c29e435151cb38'):
     # `adb exec-out` doesn't work properly on some devices. We have to fall back to `adb shell`,
     # which takes at least 600ms to exit even if the actual command runs quickly.
     # Reading a unique, non-existent file prints a predictable error message that delimits the end of
     # the stream, allowing us to let `adb shell` finish up its stuff in the background.
     lines = []
     process = subprocess.Popen(
-        args=['adb', 'shell', f'su -c "ls -1 {shlex.quote(str(path))}; ls /3bb22bb739c29e435151cb38"'],
+        args=['adb', 'shell', command + f'; ls /{sentinel}'],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT
     )
 
@@ -43,52 +41,35 @@ def adb_list_dir(path):
     for line in process.stdout:
         logger.debug('Read: %s', line)
 
-        if b'ls: ' not in line:
+        if b'ls: /' + sentinel.encode('ascii') in line:
+            return lines
+
+        if prefix not in line:
             lines.append(line)
             continue
 
-        message = line.partition(b'ls: ')[2].strip()
+        message = line.partition(prefix)[2].strip()
         process.kill()
 
-        if b'3bb22bb739c29e435151cb38' in message:
-            return [path/l[:-1].decode('utf-8') for l in lines]
-        elif b'No such file or directory' in message:
-            raise FileNotFoundError(path)
+        if b'No such file or directory' in message:
+            raise FileNotFoundError()
         else:
             raise IOError(message)
 
+
+def adb_list_dir(path):
+    logger.debug('Listing directory %s', path)
+
+    lines = adb_fast_run(f'su -c "ls -1 {shlex.quote(str(path))}"', prefix=b'ls: ')
+
+    return [path/l[:-1].decode('utf-8') for l in lines]
 
 def adb_read_file(path):
     logger.debug('Reading file %s', path)
 
-    # `adb exec-out` doesn't work properly on some devices. We have to fall back to `adb shell`,
-    # which takes at least 600ms to exit even if the actual command runs quickly.
-    # Reading a unique, non-existent file prints a predictable error message that delimits the end of
-    # the stream, allowing us to let `adb shell` finish up its stuff in the background.
-    lines = []
-    process = subprocess.Popen(
-        args=['adb', 'shell', f'su -c "toybox base64 {shlex.quote(str(path))} /3bb22bb739c29e435151cb38"'],
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT
-    )
+    lines = adb_fast_run(f'su -c "su -c "toybox base64 {shlex.quote(str(path))}', prefix=b'base64: ')
 
-    logger.debug('Running %s', process.args)
-
-    for line in process.stdout:
-        logger.debug('Read: %s', line)
-
-        if b'base64: ' not in line:
-            lines.append(line)
-            continue
-
-        message = line.partition(b'base64: ')[2].strip()
-        process.kill()
-
-        if b'3bb22bb739c29e435151cb38' in message:
-            return BytesIO(base64.b64decode(b''.join(lines)))
-        elif b'No such file or directory' in message:
-            raise FileNotFoundError(path)
-        else:
-            raise IOError(message)
+    return BytesIO(base64.b64decode(b''.join(lines)))
 
 
 def otpauth_encode_account(account):
@@ -112,7 +93,8 @@ def read_authy_accounts(data_root):
     for pref_file in ['com.authy.storage.tokens.authenticator.xml', 'com.authy.storage.tokens.authy.xml']:
         try:
             handle = adb_read_file(data_root/'com.authy.authy/shared_prefs'/pref_file)
-        except FileNotFoundError:
+        except FileNotFoundError as e:
+            import IPython; IPython.embed()
             continue
 
         accounts = json.loads(ElementTree.parse(handle).find('string').text)
@@ -204,10 +186,10 @@ def read_andotp_accounts(data_root):
     logging.info('''
 AndOTP encrypts its database with a key stored in the Android Keystore.
 There is currently no way to interface with the Android Keystore and decrypt its database using just `adb` commands.
-You will have to manually create a backup with AndOTP, which I can then read.
+You will have to manually create a backup with AndOTP, which can then be read.
 ''')
 
-    subprocess.check_output(['adb', 'shell', 'su -c "am start -n org.shadowice.flocke.andotp/.Activities.BackupActivity"'])
+    adb_fast_run('su -c "am start -n org.shadowice.flocke.andotp/.Activities.MainActivity"', prefix=b'am: ')
     backup_path = input('Enter the backup path (default: /sdcard/Download/otp_accounts.json): ') or '/sdcard/Download/otp_accounts.json'
 
     delete = input('Do you want to delete the backup afterwards (default: no)? ').lower() in ('yes', 'y')
@@ -224,7 +206,7 @@ You will have to manually create a backup with AndOTP, which I can then read.
         yield Account(account['label'], account['digits'], account['period'], normalize_secret(account['secret']), account['type'], account['algorithm'])
 
     if delete:
-        subprocess.check_output(['adb', 'shell', f'rm {shlex.quote(str(backup))}'])
+        adb_fast_run(f'rm {shlex.quote(str(backup_path))}', prefix=b'rm: ')
 
 
 def read_steam_authenticator_accounts(data_root):
@@ -331,6 +313,10 @@ if __name__ == '__main__':
 
     if not adb_list_dir(args.data):
         logger.error('Root not found or data directory is incorrect!')
+        sys.exit(1)
+
+    if not adb_read_file('/system/build.prop'):
+        logger.error('Root not found or unable to dump file contents!')
         sys.exit(1)
 
 
