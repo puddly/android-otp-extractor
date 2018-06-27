@@ -4,6 +4,7 @@ import time
 import json
 import shlex
 import base64
+import logging
 import sqlite3
 import tempfile
 import argparse
@@ -20,9 +21,12 @@ from urllib.request import pathname2url
 
 Account = namedtuple('Account', ['name', 'digits', 'period', 'secret', 'type', 'algorithm'])
 
+logging.basicConfig(format='[%(asctime)s] %(levelname)8s [%(funcName)s:%(lineno)d] %(message)s')
+logger = logging.getLogger(__name__)
+
 
 def adb_list_dir(path):
-    print('Listing directory', path, file=sys.stderr)
+    logger.debug('Listing directory %s', path)
 
     # `adb exec-out` doesn't work properly on some devices. We have to fall back to `adb shell`,
     # which takes at least 600ms to exit even if the actual command runs quickly.
@@ -34,7 +38,11 @@ def adb_list_dir(path):
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT
     )
 
+    logger.debug('Running %s', process.args)
+
     for line in process.stdout:
+        logger.debug('Read: %s', line)
+
         if b'ls: ' not in line:
             lines.append(line)
             continue
@@ -51,7 +59,7 @@ def adb_list_dir(path):
 
 
 def adb_read_file(path):
-    print('Reading file', path, file=sys.stderr)
+    logger.debug('Reading file %s', path)
 
     # `adb exec-out` doesn't work properly on some devices. We have to fall back to `adb shell`,
     # which takes at least 600ms to exit even if the actual command runs quickly.
@@ -63,7 +71,11 @@ def adb_read_file(path):
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT
     )
 
+    logger.debug('Running %s', process.args)
+
     for line in process.stdout:
+        logger.debug('Read: %s', line)
+
         if b'base64: ' not in line:
             lines.append(line)
             continue
@@ -189,13 +201,13 @@ def read_microsoft_authenticator_accounts(data_root):
 
 
 def read_andotp_accounts(data_root):
-    print('''
+    logging.info('''
 AndOTP encrypts its database with a key stored in the Android Keystore.
 There is currently no way to interface with the Android Keystore and decrypt its database using just `adb` commands.
 You will have to manually create a backup with AndOTP, which I can then read.
 ''')
 
-    subprocess.check_output(['adb', 'shell', 'su', '-c', "am start -n org.shadowice.flocke.andotp/.Activities.BackupActivity"])
+    subprocess.check_output(['adb', 'shell', 'su -c "am start -n org.shadowice.flocke.andotp/.Activities.BackupActivity"'])
     backup_path = input('Enter the backup path (default: /sdcard/Download/otp_accounts.json): ') or '/sdcard/Download/otp_accounts.json'
 
     delete = input('Do you want to delete the backup afterwards (default: no)? ').lower() in ('yes', 'y')
@@ -203,7 +215,7 @@ You will have to manually create a backup with AndOTP, which I can then read.
     try:
         backup_data = adb_read_file(backup_path)
     except FileNotFoundError:
-        print('Invalid path!', file=sys.stderr)
+        logging.error('Invalid path!')
         return
 
     backup = json.load(backup_data)
@@ -212,7 +224,7 @@ You will have to manually create a backup with AndOTP, which I can then read.
         yield Account(account['label'], account['digits'], account['period'], normalize_secret(account['secret']), account['type'], account['algorithm'])
 
     if delete:
-        subprocess.check_output(['adb', 'shell', 'rm', backup])
+        subprocess.check_output(['adb', 'shell', f'rm {shlex.quote(str(backup))}'])
 
 
 def read_steam_authenticator_accounts(data_root):
@@ -308,14 +320,17 @@ if __name__ == '__main__':
     parser.add_argument('--no-show-uri', action='store_true', help='disable printing the accounts as otpauth:// URIs')
     parser.add_argument('--show-qr', action='store_true', help='displays the accounts as a local webpage with scannable QR codes')
     parser.add_argument('--andotp-backup', type=Path, help='saves the accounts as an AndOTP backup file')
+    parser.add_argument('-v', '--verbose', dest='verbose', action='count', default=0, help='increases verbosity')
 
     args = parser.parse_args()
 
+    logger.setLevel([logging.INFO, logging.DEBUG][min(args.verbose, 1)])
 
-    print(f'Checking for root by listing the contents of {args.data}. You might have to grant ADB temporary root access.', file=sys.stderr)
+
+    logger.info('Checking for root by listing the contents of %s. You might have to grant ADB temporary root access.', args.data)
 
     if not adb_list_dir(args.data):
-        print('Root not found or data directory is incorrect!', file=sys.stderr)
+        logger.error('Root not found or data directory is incorrect!')
         sys.exit(1)
 
 
