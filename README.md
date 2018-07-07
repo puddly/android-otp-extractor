@@ -9,7 +9,8 @@ Many OTP apps don't support exporting their OTP secrets. Switching apps would re
  - Authy
  - Duo Mobile
  - FreeOTP
- - AndOTP (user-assisted)
+ - Steam Authenticator
+ - AndOTP (when encrypted backups are enabled)
 
 ## Usage
 
@@ -22,7 +23,7 @@ Requires Python 3.6+ and a **rooted** Android phone. Decrypting AndOTP backups r
                                  [--no-google-authenticator]
                                  [--no-microsoft-authenticator]
                                  [--no-steam-authenticator] [--data DATA]
-                                 [--no-show-uri] [--show-qr]
+                                 [--no-show-uri] [--show-qr] [--prepend-issuer]
                                  [--andotp-backup ANDOTP_BACKUP] [-v]
 
     Extracts TOTP secrets from a rooted Android phone.
@@ -50,6 +51,7 @@ Requires Python 3.6+ and a **rooted** Android phone. Decrypting AndOTP backups r
                             (default: False)
       --show-qr             displays the accounts as a local webpage with
                             scannable QR codes (default: False)
+      --prepend-issuer      adds the issuer to the token name (default: False)
       --andotp-backup ANDOTP_BACKUP
                             saves the accounts as an AndOTP backup file (default:
                             None)

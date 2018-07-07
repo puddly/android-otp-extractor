@@ -30,9 +30,16 @@ logger = logging.getLogger(__name__)
 class OTPAccount:
     type = None
 
-    def __init__(self, name, secret):
+    def __init__(self, name, secret, issuer=None):
         self.name = name
         self.secret = normalize_secret(secret)
+        self.issuer = issuer
+
+    def __hash__(self):
+        return hash(self.as_uri())
+
+    def __eq__(self, other):
+        return self.as_uri() == other.as_uri()
 
     def as_andotp(self):
         raise NotImplementedError()
@@ -40,18 +47,26 @@ class OTPAccount:
     def uri_params(self):
         return {}
 
-    def as_uri(self):
+    def as_uri(self, prepend_issuer=False):
         params = self.uri_params()
         params['secret'] = self.secret
 
-        return f'otpauth://{self.type}/{quote(self.name)}?' + urlencode(params)
+        if self.issuer:
+            params['issuer'] = self.issuer
+
+        name = self.name
+
+        if prepend_issuer and self.issuer:
+            name = f'{self.issuer}: {self.name}'
+
+        return f'otpauth://{self.type}/{quote(name)}?' + urlencode(sorted(params.items()))
 
 
 class HOTPAccount(OTPAccount):
     type = 'hotp'
 
-    def __init__(self, name, secret, counter, digits=6, algorithm='SHA1'):
-        super().__init__(name, secret)
+    def __init__(self, name, secret, counter, issuer=None, digits=6, algorithm='SHA1'):
+        super().__init__(name, secret, issuer)
         self.counter = counter
         self.digits = 6
         self.algorithm = algorithm
@@ -78,8 +93,8 @@ class HOTPAccount(OTPAccount):
 class TOTPAccount(OTPAccount):
     type = 'totp'
 
-    def __init__(self, name, secret, digits=6, period=30, algorithm='SHA1'):
-        super().__init__(name, secret)
+    def __init__(self, name, secret, issuer=None, digits=6, period=30, algorithm='SHA1'):
+        super().__init__(name, secret, issuer)
         self.digits = digits
         self.period = period
         self.algorithm = algorithm
@@ -202,11 +217,13 @@ def read_freeotp_accounts(data_root):
             continue
 
         secret = bytes([b & 0xff for b in account['secret']]).hex()
+        issuer = account.get('issuerAlt') or account['issuerExt'] or None
+        name = account['label']
 
         if account['type'] == 'TOTP':
-            yield TOTPAccount(account['label'], secret, digits=account['digits'], period=account['period'], algorithm=account['algo'])
+            yield TOTPAccount(name, secret, issuer=issuer, digits=account['digits'], period=account['period'], algorithm=account['algo'])
         elif account['type'] == 'HOTP':
-            yield HOTPAccount(account['label'], secret, digits=account['digits'], counter=account['counter'], algorithm=account['algo'])
+            yield HOTPAccount(name, secret, issuer=issuer, digits=account['digits'], counter=account['counter'], algorithm=account['algo'])
         else:
             logging.warning('Unknown FreeOTP account type: %s', account['type'])
 
@@ -232,16 +249,21 @@ def read_google_authenticator_accounts(data_root):
     except FileNotFoundError:
         return
 
-    with NamedTemporaryFile(delete=False, suffix='.html') as temp_handle:       
+    with NamedTemporaryFile(delete=False) as temp_handle:
         temp_handle.write(database.read())
 
     try:
         connection = sqlite3.connect(temp_handle.name)
         cursor = connection.cursor()
-        cursor.execute('SELECT email, secret FROM accounts;')
+        cursor.execute('SELECT original_name, secret, counter, type, issuer FROM accounts;')
 
-        for name, secret in cursor.fetchall():
-            yield TOTPAccount(name, secret)
+        for name, secret, counter, type, issuer in cursor.fetchall():
+            if type == 0:
+                yield TOTPAccount(name, secret, issuer=issuer)
+            elif type == 1:
+                yield HOTPAccount(name, secret, issuer=issuer, counter=counter)
+            else:
+                logging.warning('Unknown Google Authenticator account type: %s', type)
 
         connection.close()
     finally:
@@ -338,7 +360,7 @@ def read_steam_authenticator_accounts(data_root):
         yield SteamAccount(account_json['account_name'], secret)
 
 
-def display_qr_codes(accounts):
+def display_qr_codes(accounts, prepend_issuer=False):
     accounts_html = '''
         <!doctype html>
 
@@ -382,7 +404,7 @@ def display_qr_codes(accounts):
                     document.body.appendChild(label);
                 }
             </script>
-        </body>''' % json.dumps([a.as_uri() for a in accounts])
+        </body>''' % json.dumps([a.as_uri(prepend_issuer) for a in accounts])
 
     # Temporary files are only readable by the current user (mode 0600)
     with tempfile.NamedTemporaryFile(delete=False, suffix='.html') as handle:
@@ -414,6 +436,7 @@ if __name__ == '__main__':
     parser.add_argument('--no-show-uri', action='store_true', help='disable printing the accounts as otpauth:// URIs')
     parser.add_argument('--show-qr', action='store_true', help='displays the accounts as a local webpage with scannable QR codes')
 
+    parser.add_argument('--prepend-issuer', action='store_true', help='adds the issuer to the token name')
     parser.add_argument('--andotp-backup', type=Path, help='saves the accounts as an AndOTP backup file')
 
     parser.add_argument('-v', '--verbose', dest='verbose', action='count', default=0, help='increases verbosity')
@@ -428,6 +451,8 @@ if __name__ == '__main__':
     if not adb_list_dir(args.data):
         logger.error('Root not found or data directory is incorrect!')
         sys.exit(1)
+
+    logger.debug('Checking if files can be properly read by reading /system/build.prop')
 
     if not adb_read_file('/system/build.prop'):
         logger.error('Root not found or unable to dump file contents!')
@@ -459,10 +484,10 @@ if __name__ == '__main__':
 
     if not args.no_show_uri:
         for account in accounts:
-            print(account.as_uri())
+            print(account.as_uri(args.prepend_issuer))
 
     if args.show_qr:
-        display_qr_codes(accounts)
+        display_qr_codes(accounts, args.prepend_issuer)
 
     if args.andotp_backup:
         with open(args.andotp_backup, 'w') as handle:
