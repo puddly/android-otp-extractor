@@ -13,10 +13,13 @@ Many OTP apps don't support exporting their OTP secrets. Switching apps would re
 
 ## Usage
 
-Requires Python 3.6+ and a **rooted** Android phone.
+Requires Python 3.6+ and a **rooted** Android phone. Decrypting AndOTP backups requires [PyCryptodome](https://pycryptodome.readthedocs.io/en/latest/src/installation.html).
 
-    usage: extract_otp_tokens.py [-h] [--andotp] [--no-authy] [--no-duo]
-                                 [--no-freeotp] [--no-google-authenticator]
+    usage: extract_otp_tokens.py [-h] [--andotp]
+                                 [--andotp-backup-path ANDOTP_BACKUP_PATH]
+                                 [--no-create-andotp-backup] [--no-authy]
+                                 [--no-duo] [--no-freeotp]
+                                 [--no-google-authenticator]
                                  [--no-microsoft-authenticator]
                                  [--no-steam-authenticator] [--data DATA]
                                  [--no-show-uri] [--show-qr]
@@ -26,7 +29,13 @@ Requires Python 3.6+ and a **rooted** Android phone.
 
     optional arguments:
       -h, --help            show this help message and exit
-      --andotp              parse AndOTP codes from a backup (default: False)
+      --andotp              parse an encrypted AndOTP backup (default: False)
+      --andotp-backup-path ANDOTP_BACKUP_PATH
+                            path to the AndOTP backup file (default:
+                            $EXTERNAL_STORAGE/andOTP/otp_accounts.json.aes)
+      --no-create-andotp-backup
+                            do not automatically create an encrypted AndOTP backup
+                            (default: False)
       --no-authy            no Authy codes (default: False)
       --no-duo              no Duo codes (default: False)
       --no-freeotp          no FreeOTP codes (default: False)
