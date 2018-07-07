@@ -385,7 +385,7 @@ def display_qr_codes(accounts):
         </body>''' % json.dumps([a.as_uri() for a in accounts])
 
     # Temporary files are only readable by the current user (mode 0600)
-    with tempfile.NamedTemporaryFile(delete=False) as handle:
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.html') as handle:
         handle.write(accounts_html.encode('utf-8'))
 
     try:
