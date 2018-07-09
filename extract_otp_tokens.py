@@ -323,13 +323,13 @@ def read_andotp_accounts(data_root):
 
         adb_fast_run('am broadcast -a org.shadowice.flocke.andotp.broadcast.ENCRYPTED_BACKUP org.shadowice.flocke.andotp', prefix=b'am: ')
     elif 'plain' in allowed_backup_broadcasts:
-        if not input('Are you sure you want to create a plaintext backup (y/N)? ').lower().startswith('y'):
+        if not input('Encrypted AndOTP backups are disabled. Are you sure you want to create a plaintext backup (y/N)? ').lower().startswith('y'):
             logger.debug('Aborted AndOTP plaintext backup')
             return
 
         adb_fast_run('am broadcast -a org.shadowice.flocke.andotp.broadcast.PLAIN_TEXT_BACKUP org.shadowice.flocke.andotp', prefix=b'am: ')
     else:
-        logger.error('No AndOTP backup broadcasts are setup. Please enable them in the AndOTP settings.')
+        logger.error('No AndOTP backup broadcasts are setup. Please enable at least encrypted backups in the AndOTP settings.')
         return
 
     backup_data = None
@@ -350,7 +350,7 @@ def read_andotp_accounts(data_root):
         except FileNotFoundError:
             logger.warning('Did not find any new backup files in %s (attempt %d)', backup_path, i + 1)
     else:
-        logger.error('Could not read the AndOTP backup file. Do you have a backup password set and is your path correct?')
+        logger.error('Could not read the AndOTP backup file. Do you have a backup password set?')
         return
 
     if 'encrypted' in allowed_backup_broadcasts:
@@ -505,7 +505,7 @@ if __name__ == '__main__':
 
     accounts = set()
 
-    if args.no_andotp:
+    if not args.no_andotp:
         accounts.update(read_andotp_accounts(args.data))
 
     if not args.no_authy:
