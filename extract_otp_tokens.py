@@ -225,7 +225,7 @@ def read_freeotp_accounts(data_root):
         elif account['type'] == 'HOTP':
             yield HOTPAccount(name, secret, issuer=issuer, digits=account['digits'], counter=account['counter'], algorithm=account['algo'])
         else:
-            logging.warning('Unknown FreeOTP account type: %s', account['type'])
+            logger.warning('Unknown FreeOTP account type: %s', account['type'])
 
 
 def read_duo_accounts(data_root):
@@ -263,7 +263,7 @@ def read_google_authenticator_accounts(data_root):
             elif type == 1:
                 yield HOTPAccount(name, secret, issuer=issuer, counter=counter)
             else:
-                logging.warning('Unknown Google Authenticator account type: %s', type)
+                logger.warning('Unknown Google Authenticator account type: %s', type)
 
         connection.close()
     finally:
@@ -290,51 +290,97 @@ def read_microsoft_authenticator_accounts(data_root):
         os.unlink(temp_handle.name)
 
 
-def read_andotp_accounts(data_root, backup_path, auto_backup):
+def read_andotp_accounts(data_root):
+    # Parse the preferences file to determine what kind of backups we can have AndOTP generate and where they will reside
     try:
-        from Crypto.Cipher import AES
-    except:
-        logging.error('Decrypting AndOTP backups requires PyCryptodome')
+        handle = adb_read_file(data_root/'org.shadowice.flocke.andotp/shared_prefs/org.shadowice.flocke.andotp_preferences.xml')
+    except FileNotFoundError:
         return
 
-    if auto_backup:
+    preferences = ElementTree.parse(handle)
+
+    try:
+        backup_path = PurePosixPath(preferences.find('.//string[@name="pref_backup_directory"]').text)
+    except AttributeError:
+        backup_path = PurePosixPath('$EXTERNAL_STORAGE/andOTP')
+
+    try:
+        allowed_backup_broadcasts = [s.text for s in preferences.findall('.//set[@name="pref_backup_broadcasts"]/string')]
+    except AttributeError:
+        allowed_backup_broadcasts = []
+
+    try:
+        initial_backup_files = set(adb_list_dir(backup_path))
+    except FileNotFoundError:
+        initial_backup_files = set()
+
+    if 'encrypted' in allowed_backup_broadcasts:
+        try:
+            from Crypto.Cipher import AES
+        except:
+            logger.error('Reading encrypted AndOTP backups requires PyCryptodome')
+            return
+
         adb_fast_run('am broadcast -a org.shadowice.flocke.andotp.broadcast.ENCRYPTED_BACKUP org.shadowice.flocke.andotp', prefix=b'am: ')
+    elif 'plain' in allowed_backup_broadcasts:
+        if not input('Are you sure you want to create a plaintext backup (y/N)? ').lower().startswith('y'):
+            logger.debug('Aborted AndOTP plaintext backup')
+            return
+
+        adb_fast_run('am broadcast -a org.shadowice.flocke.andotp.broadcast.PLAIN_TEXT_BACKUP org.shadowice.flocke.andotp', prefix=b'am: ')
+    else:
+        logger.error('No AndOTP backup broadcasts are setup. Please enable them in the AndOTP settings.')
+        return
 
     backup_data = None
+    backup_file = None
 
-    for i in range(5):
+    # Find all newly-created backup files
+    for i in range(10):
         try:
-            time.sleep(1.0)
-            backup_data = adb_read_file(backup_path)
+            time.sleep(0.1)
+            new_backups = list(set(adb_list_dir(backup_path)) - initial_backup_files)
+
+            if not new_backups:
+                continue
+
+            backup_file = new_backups[0]
+            backup_data = adb_read_file(backup_file)
             break
         except FileNotFoundError:
-            logging.warning('Could not read %s (attempt %d)', backup_path, i + 1)
+            logger.warning('Did not find any new backup files in %s (attempt %d)', backup_path, i + 1)
     else:
-        logging.error('Could not read the AndOTP backup file. Do you have a backup password set and is your path correct?')
+        logger.error('Could not read the AndOTP backup file. Do you have a backup password set and is your path correct?')
         return
 
-    # Structure of backup file (github.com/asmw/andOTP-decrypt)
-    size = len(backup_data.getvalue())
+    if 'encrypted' in allowed_backup_broadcasts:
+        backup_password = getpass.getpass('Enter the AndOTP backup password: ')
 
-    nonce = backup_data.read(12)
-    ciphertext = backup_data.read(size - 12 - 16)
-    tag = backup_data.read(16)
+        # Structure of backup file (github.com/asmw/andOTP-decrypt)
+        size = len(backup_data.getvalue())
 
-    backup_password = getpass.getpass('Enter the AndOTP backup password: ')
-    key = hashlib.sha256(backup_password.encode('utf-8')).digest()
+        nonce = backup_data.read(12)
+        ciphertext = backup_data.read(size - 12 - 16)
+        tag = backup_data.read(16)
 
-    cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
+        key = hashlib.sha256(backup_password.encode('utf-8')).digest()
 
-    try:
-        plaintext = cipher.decrypt(ciphertext)
-        cipher.verify(tag)
-    except ValueError:
-        logging.error('Could not decrypt the AndOTP backup. Is your password correct?')
-        return
+        cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
 
-    accounts = json.loads(plaintext)
+        try:
+            accounts_json = cipher.decrypt(ciphertext)
+            cipher.verify(tag)
+        except ValueError:
+            logger.error('Could not decrypt the AndOTP backup. Is your password correct?')
+            return
+    else:
+        accounts_json = backup_data.read()
 
-    for account in accounts:
+        if backup_file.suffix == '.json':
+            if not input('Do you want to delete the plaintext backup (y/N)? ').lower().startswith('y'):
+                adb_fast_run(f'su -c "rm {shlex.quote(str(backup_file))}"', prefix=b'rm: ')
+
+    for account in json.loads(accounts_json):
         if account['type'] == 'TOTP':
             yield TOTPAccount(account['label'], account['secret'], digits=account['digits'], period=account['period'], algorithm=account['algorithm'])
         elif account['type'] == 'HOTP':
@@ -342,11 +388,12 @@ def read_andotp_accounts(data_root, backup_path, auto_backup):
         elif account['type'] == 'STEAM':
             yield SteamAccount(account['label'], account['secret'])
         else:
-            logging.warning('Unknown AndOTP account type: %s', account['type'])
+            logger.warning('Unknown AndOTP account type: %s', account['type'])
 
 
 def read_steam_authenticator_accounts(data_root):
     accounts_folder = 'com.valvesoftware.android.steam.community/files'
+
     try:
         account_files = adb_list_dir(data_root/accounts_folder)
     except FileNotFoundError:
@@ -420,10 +467,7 @@ def display_qr_codes(accounts, prepend_issuer=False):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Extracts TOTP secrets from a rooted Android phone.', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('--andotp', action='store_true', help='parse an encrypted AndOTP backup')
-    parser.add_argument('--andotp-backup-path', default='$EXTERNAL_STORAGE/andOTP/otp_accounts.json.aes', help='path to the AndOTP backup file')
-    parser.add_argument('--no-create-andotp-backup', action='store_true', help='do not automatically create an encrypted AndOTP backup')
-
+    parser.add_argument('--no-andotp', action='store_true', help='do not create and parse an AndOTP backup')
     parser.add_argument('--no-authy', action='store_true', help='no Authy codes')
     parser.add_argument('--no-duo', action='store_true', help='no Duo codes')
     parser.add_argument('--no-freeotp', action='store_true', help='no FreeOTP codes')
@@ -431,7 +475,7 @@ if __name__ == '__main__':
     parser.add_argument('--no-microsoft-authenticator', action='store_true', help='no Microsoft Authenticator codes')
     parser.add_argument('--no-steam-authenticator', action='store_true', help='no Steam Authenticator codes')
 
-    parser.add_argument('--data', type=PurePosixPath, default=PurePosixPath('/data/data/'), help='path to the app data folder')
+    parser.add_argument('--data', type=PurePosixPath, default=PurePosixPath('$ANDROID_DATA/data/'), help='path to the app data folder')
 
     parser.add_argument('--no-show-uri', action='store_true', help='disable printing the accounts as otpauth:// URIs')
     parser.add_argument('--show-qr', action='store_true', help='displays the accounts as a local webpage with scannable QR codes')
@@ -461,8 +505,8 @@ if __name__ == '__main__':
 
     accounts = set()
 
-    if args.andotp:
-        accounts.update(read_andotp_accounts(args.data, args.andotp_backup_path, auto_backup=not args.no_create_andotp_backup))
+    if args.no_andotp:
+        accounts.update(read_andotp_accounts(args.data))
 
     if not args.no_authy:
         accounts.update(read_authy_accounts(args.data))
