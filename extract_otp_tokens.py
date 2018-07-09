@@ -160,6 +160,8 @@ def adb_fast_run(command, prefix, *, sentinel='3bb22bb739c29e435151cb38'):
         else:
             raise IOError(message)
 
+    raise ValueError(f'adb command failed: {lines}')
+
 
 def adb_list_dir(path):
     logger.debug('Listing directory %s', path)
