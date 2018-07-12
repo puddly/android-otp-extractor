@@ -173,7 +173,7 @@ def adb_list_dir(path):
 def adb_read_file(path):
     logger.debug('Reading file %s', path)
 
-    lines = adb_fast_run(f'su -c "su -c "toybox base64 {shlex.quote(str(path))}', prefix=b'base64: ')
+    lines = adb_fast_run(f'su -c "toybox base64 {shlex.quote(str(path))}"', prefix=b'base64: ')
 
     return BytesIO(base64.b64decode(b''.join(lines)))
 
@@ -498,9 +498,9 @@ if __name__ == '__main__':
         logger.error('Root not found or data directory is incorrect!')
         sys.exit(1)
 
-    logger.debug('Checking if files can be properly read by reading /system/build.prop')
+    logger.debug('Checking if files can be properly read by reading $ANDROID_ROOT/build.prop')
 
-    if not adb_read_file('/system/build.prop'):
+    if not adb_read_file('$ANDROID_ROOT/build.prop'):
         logger.error('Root not found or unable to dump file contents!')
         sys.exit(1)
 
