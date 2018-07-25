@@ -56,8 +56,6 @@ class OTPAccount:
         if self.issuer:
             params['issuer'] = self.issuer
 
-        name = self.name
-
         if prepend_issuer and self.issuer:
             name = f'{self.issuer}: {self.name}'
 
@@ -259,9 +257,10 @@ def read_google_authenticator_accounts(data_root):
     try:
         connection = sqlite3.connect(temp_handle.name)
         cursor = connection.cursor()
-        cursor.execute('SELECT original_name, secret, counter, type, issuer FROM accounts;')
+        cursor.execute('SELECT email, original_name, secret, counter, type, issuer FROM accounts;')
 
-        for name, secret, counter, type, issuer in cursor.fetchall():
+        for email, name, secret, counter, type, issuer in cursor.fetchall():
+            name = name if name is not None else email
             if type == 0:
                 yield TOTPAccount(name, secret, issuer=issuer)
             elif type == 1:
