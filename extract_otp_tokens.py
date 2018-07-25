@@ -54,7 +54,7 @@ class OTPAccount:
         if self.issuer:
             params['issuer'] = self.issuer
 
-        name = self.name
+        name = self.name if self.name is not None else "Unknown"
 
         if prepend_issuer and self.issuer:
             name = f'{self.issuer}: {self.name}'
