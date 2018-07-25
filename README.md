@@ -12,6 +12,13 @@ Many OTP apps don't support exporting their OTP secrets. Switching apps would re
  - Steam Authenticator
  - AndOTP (when encrypted backups are enabled)
 
+## Installation
+
+ - Make sure Python3 is installed
+   - on Mac, you can do so with `brew install python3` (provided [HomeBrew](https://brew.sh/) is already installed)
+ - Clone the repo or just download [the main script](https://raw.githubusercontent.com/puddly/android-otp-extractor/master/extract_otp_tokens.py)
+ - Make it executable with `chmod +x extract_otp_tokens.py`
+
 ## Usage
 
 Requires Python 3.6+ and a **rooted** Android phone. Parsing encrypted AndOTP backups (recommended) requires [PyCryptodome](https://pycryptodome.readthedocs.io/en/latest/src/installation.html).
