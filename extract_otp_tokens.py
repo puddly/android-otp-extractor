@@ -25,6 +25,15 @@ from urllib.request import pathname2url
 
 Account = namedtuple('Account', ['name', 'digits', 'period', 'secret', 'type', 'algorithm'])
 
+TRACE = logging.DEBUG - 5
+logging.addLevelName(TRACE, 'TRACE')
+
+class TraceLogger(logging.getLoggerClass()):
+    def trace(self, msg, *args, **kwargs):
+        self.log(TRACE, msg, *args, **kwargs)
+
+logging.setLoggerClass(TraceLogger)
+
 logging.basicConfig(format='[%(asctime)s] %(levelname)8s [%(funcName)s:%(lineno)d] %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -59,7 +68,7 @@ class OTPAccount:
         if prepend_issuer and self.issuer:
             name = f'{self.issuer}: {self.name}'
         else:
-            name = self.name or "Unknown"
+            name = self.name or 'Unknown'
 
         return f'otpauth://{self.type}/{quote(name)}?' + urlencode(sorted(params.items()))
 
@@ -142,10 +151,10 @@ def adb_fast_run(command, prefix, *, sentinel='3bb22bb739c29e435151cb38'):
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT
     )
 
-    logger.debug('Running %s', process.args)
+    logger.trace('Running %s', process.args)
 
     for line in process.stdout:
-        logger.debug('Read: %s', line)
+        logger.trace('Read: %s', line)
 
         if b'ls: /' + sentinel.encode('ascii') in line:
             return lines
@@ -178,6 +187,18 @@ def adb_read_file(path):
     lines = adb_fast_run(f'su -c "toybox base64 {shlex.quote(str(path))}"', prefix=b'base64: ')
 
     return BytesIO(base64.b64decode(b''.join(lines)))
+
+def adb_get_file_hash(path):
+    logger.debug('Hashing file %s', path)
+
+    # Assume `ls -l` only changes when the file changes
+    lines = adb_fast_run(f'su -c "toybox ls -l {shlex.quote(str(path))}"', prefix=b'ls: ')
+
+    # Hash both the metadata and the file's contents
+    key = repr((lines, adb_read_file(path).read())).encode('ascii')
+
+    return hashlib.sha256(key).hexdigest()
+
 
 
 def normalize_secret(secret):
@@ -263,6 +284,7 @@ def read_google_authenticator_accounts(data_root):
 
         for email, name, secret, counter, type, issuer in cursor.fetchall():
             name = name if name is not None else email
+
             if type == 0:
                 yield TOTPAccount(name, secret, issuer=issuer)
             elif type == 1:
@@ -315,9 +337,9 @@ def read_andotp_accounts(data_root):
         allowed_backup_broadcasts = []
 
     try:
-        initial_backup_files = set(adb_list_dir(backup_path))
+        initial_backup_files = {f: adb_get_file_hash(f) for f in adb_list_dir(backup_path)}
     except FileNotFoundError:
-        initial_backup_files = set()
+        initial_backup_files = {}
 
     if 'encrypted' in allowed_backup_broadcasts:
         try:
@@ -329,7 +351,7 @@ def read_andotp_accounts(data_root):
         adb_fast_run('am broadcast -a org.shadowice.flocke.andotp.broadcast.ENCRYPTED_BACKUP org.shadowice.flocke.andotp', prefix=b'am: ')
     elif 'plain' in allowed_backup_broadcasts:
         if not input('Encrypted AndOTP backups are disabled. Are you sure you want to create a plaintext backup (y/N)? ').lower().startswith('y'):
-            logger.debug('Aborted AndOTP plaintext backup')
+            logger.info('Aborted AndOTP plaintext backup')
             return
 
         adb_fast_run('am broadcast -a org.shadowice.flocke.andotp.broadcast.PLAIN_TEXT_BACKUP org.shadowice.flocke.andotp', prefix=b'am: ')
@@ -343,17 +365,21 @@ def read_andotp_accounts(data_root):
     # Find all newly-created backup files
     for i in range(10):
         try:
-            time.sleep(0.1)
-            new_backups = list(set(adb_list_dir(backup_path)) - initial_backup_files)
+            logger.info('Waiting for AndOTP to generate the backup file (attempt %d)', i + 1)
+            time.sleep(1)
+
+            new_backups = [f for f in adb_list_dir(backup_path) if initial_backup_files.get(f) != adb_get_file_hash(f)]
 
             if not new_backups:
                 continue
+
+            logger.debug('Found AndOTP backup files: %s', new_backups)
 
             backup_file = new_backups[0]
             backup_data = adb_read_file(backup_file)
             break
         except FileNotFoundError:
-            logger.warning('Did not find any new backup files in %s (attempt %d)', backup_path, i + 1)
+            continue
     else:
         logger.error('Could not read the AndOTP backup file. Do you have a backup password set?')
         return
@@ -492,7 +518,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    logger.setLevel([logging.INFO, logging.DEBUG][min(args.verbose, 1)])
+    logger.setLevel([logging.INFO, logging.DEBUG, TRACE][max(args.verbose, 0)])
 
 
     logger.info('Checking for root by listing the contents of %s. You might have to grant ADB temporary root access.', args.data)
@@ -501,7 +527,7 @@ if __name__ == '__main__':
         logger.error('Root not found or data directory is incorrect!')
         sys.exit(1)
 
-    logger.debug('Checking if files can be properly read by reading $ANDROID_ROOT/build.prop')
+    logger.info('Checking if files can be properly read by reading $ANDROID_ROOT/build.prop')
 
     if not adb_read_file('$ANDROID_ROOT/build.prop'):
         logger.error('Root not found or unable to dump file contents!')
@@ -510,26 +536,24 @@ if __name__ == '__main__':
 
     accounts = set()
 
-    if not args.no_andotp:
-        accounts.update(read_andotp_accounts(args.data))
+    for name, flag, function in [
+        ('AndOTP',                  args.no_andotp,                  read_andotp_accounts),
+        ('Authy',                   args.no_authy,                   read_authy_accounts),
+        ('Duo',                     args.no_duo,                     read_duo_accounts),
+        ('FreeOTP',                 args.no_freeotp,                 read_freeotp_accounts),
+        ('Google Authenticator',    args.no_google_authenticator,    read_google_authenticator_accounts),
+        ('Microsoft Authenticator', args.no_microsoft_authenticator, read_microsoft_authenticator_accounts),
+        ('Steam Authenticator',     args.no_steam_authenticator,     read_steam_authenticator_accounts),
+    ]:
+        if flag:
+            continue
 
-    if not args.no_authy:
-        accounts.update(read_authy_accounts(args.data))
+        logger.info('Reading %s accounts', name)
+        new = list(function(args.data))
+        old_count = len(accounts)
 
-    if not args.no_duo:
-        accounts.update(read_duo_accounts(args.data))
-
-    if not args.no_freeotp:
-        accounts.update(read_freeotp_accounts(args.data))
-
-    if not args.no_google_authenticator:
-        accounts.update(read_google_authenticator_accounts(args.data))
-
-    if not args.no_microsoft_authenticator:
-        accounts.update(read_microsoft_authenticator_accounts(args.data))
-
-    if not args.no_steam_authenticator:
-        accounts.update(read_steam_authenticator_accounts(args.data))
+        accounts.update(new)
+        logger.info('Found %d accounts (%d new)', len(new), len(accounts) - old_count)
 
     if not args.no_show_uri:
         for account in accounts:
@@ -539,5 +563,9 @@ if __name__ == '__main__':
         display_qr_codes(accounts, args.prepend_issuer)
 
     if args.andotp_backup:
+        for a in accounts:
+            if isinstance(a, SteamAccount):
+                logger.warning(f'AndOTP does not support importing Steam tokens from backups: {a.as_uri(args.prepend_issuer)}')
+
         with open(args.andotp_backup, 'w') as handle:
-            handle.write(json.dumps([a.as_andotp() for a in accounts]))
+            handle.write(json.dumps([a.as_andotp() for a in accounts if not isinstance(a, SteamAccount)]))
