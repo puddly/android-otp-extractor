@@ -58,6 +58,8 @@ class OTPAccount:
 
         if prepend_issuer and self.issuer:
             name = f'{self.issuer}: {self.name}'
+        else:
+            name = self.name or "Unknown"
 
         return f'otpauth://{self.type}/{quote(name)}?' + urlencode(sorted(params.items()))
 
