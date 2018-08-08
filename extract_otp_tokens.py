@@ -128,16 +128,11 @@ class TOTPAccount(OTPAccount):
         }
 
 
-class SteamAccount(OTPAccount):
-    type = 'steam'
+class SteamAccount(TOTPAccount):
+    type = 'STEAM'
 
-    def as_andotp(self):
-        return {
-            'secret': self.secret,
-            'label': self.name,
-            'type': self.type
-        }
-
+    def __init__(self, name, secret, issuer=None):
+        super().__init__(name, secret, issuer, digits=5)
 
 
 def adb_fast_run(command, prefix, *, sentinel='3bb22bb739c29e435151cb38'):
