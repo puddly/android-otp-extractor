@@ -128,16 +128,11 @@ class TOTPAccount(OTPAccount):
         }
 
 
-class SteamAccount(OTPAccount):
-    type = 'steam'
+class SteamAccount(TOTPAccount):
+    type = 'STEAM'
 
-    def as_andotp(self):
-        return {
-            'secret': self.secret,
-            'label': self.name,
-            'type': self.type
-        }
-
+    def __init__(self, name, secret, issuer=None):
+        super().__init__(name, secret, issuer, digits=5)
 
 
 def adb_fast_run(command, prefix, *, sentinel='3bb22bb739c29e435151cb38'):
@@ -563,9 +558,5 @@ if __name__ == '__main__':
         display_qr_codes(accounts, args.prepend_issuer)
 
     if args.andotp_backup:
-        for a in accounts:
-            if isinstance(a, SteamAccount):
-                logger.warning(f'AndOTP does not support importing Steam tokens from backups: {a.as_uri(args.prepend_issuer)}')
-
         with open(args.andotp_backup, 'w') as handle:
             handle.write(json.dumps([a.as_andotp() for a in accounts if not isinstance(a, SteamAccount)]))
