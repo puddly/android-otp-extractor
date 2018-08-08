@@ -58,6 +58,8 @@ class OTPAccount:
 
         if prepend_issuer and self.issuer:
             name = f'{self.issuer}: {self.name}'
+        else:
+            name = self.name or "Unknown"
 
         return f'otpauth://{self.type}/{quote(name)}?' + urlencode(sorted(params.items()))
 
@@ -405,7 +407,7 @@ def read_steam_authenticator_accounts(data_root):
     for account_file in account_files:
         account_json = json.load(adb_read_file(account_file))
 
-        secret = base64.b32encode(base64.b64decode(account_json['shared_secret']))
+        secret = base64.b32encode(base64.b64decode(account_json['shared_secret'])).decode('ascii')
 
         yield SteamAccount(account_json['account_name'], secret)
 
