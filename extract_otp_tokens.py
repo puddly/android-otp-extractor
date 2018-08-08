@@ -558,9 +558,5 @@ if __name__ == '__main__':
         display_qr_codes(accounts, args.prepend_issuer)
 
     if args.andotp_backup:
-        for a in accounts:
-            if isinstance(a, SteamAccount):
-                logger.warning(f'AndOTP does not support importing Steam tokens from backups: {a.as_uri(args.prepend_issuer)}')
-
         with open(args.andotp_backup, 'w') as handle:
             handle.write(json.dumps([a.as_andotp() for a in accounts if not isinstance(a, SteamAccount)]))
