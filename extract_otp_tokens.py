@@ -134,66 +134,88 @@ class SteamAccount(TOTPAccount):
     def __init__(self, name, secret, issuer=None):
         super().__init__(name, secret, issuer, digits=5)
 
+class ADBInterface:
+    def run(self, command, *, prefix, root=False):
+        sentinel = '3bb22bb739c29e435151cb38'
 
-def adb_fast_run(command, prefix, *, sentinel='3bb22bb739c29e435151cb38'):
-    # `adb exec-out` doesn't work properly on some devices. We have to fall back to `adb shell`,
-    # which takes at least 600ms to exit even if the actual command runs quickly.
-    # Reading a unique, non-existent file prints a predictable error message that delimits the end of
-    # the stream, allowing us to let `adb shell` finish up its stuff in the background.
-    lines = []
-    process = subprocess.Popen(
-        args=['adb', 'shell', command + f'; ls /{sentinel}'],
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT
-    )
+        if root:
+            command = f'su -c "{command}"'
 
-    logger.trace('Running %s', process.args)
+        # `adb exec-out` doesn't work properly on some devices. We have to fall back to `adb shell`,
+        # which takes at least 600ms to exit even if the actual command runs quickly.
+        # Reading a unique, non-existent file prints a predictable error message that delimits the end of
+        # the stream, allowing us to let `adb shell` finish up its stuff in the background.
+        lines = []
+        process = subprocess.Popen(
+            args=['adb', 'shell', command + f'; ls /{sentinel}'],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT
+        )
 
-    for line in process.stdout:
-        logger.trace('Read: %s', line)
+        logger.trace('Running %s', process.args)
 
-        if b'ls: /' + sentinel.encode('ascii') in line:
-            return lines
+        for line in process.stdout:
+            logger.trace('Read: %s', line)
 
-        if prefix not in line:
-            lines.append(line)
-            continue
+            if b'/' + sentinel.encode('ascii') in line:
+                return lines
+            elif b': not found' in line:
+                raise RuntimeError('Binary not found')
 
-        message = line.partition(prefix)[2].strip()
-        process.kill()
+            if prefix not in line:
+                lines.append(line)
+                continue
 
-        if b'No such file or directory' in message:
-            raise FileNotFoundError()
-        else:
-            raise IOError(message)
+            message = line.partition(prefix)[2].strip()
+            process.kill()
 
-    raise ValueError(f'adb command failed: {lines}')
+            if b'No such file or directory' in message:
+                raise FileNotFoundError()
+            else:
+                raise IOError(message)
+
+        raise ValueError(f'adb command failed: {lines}')
+
+    def list_dir(self, path):
+        raise NotImplementedError()
+
+    def read_file(self, path):
+        raise NotImplementedError()
+
+    def hash_file(self, path):
+        raise NotImplementedError()
 
 
-def adb_list_dir(path):
-    logger.debug('Listing directory %s', path)
+class SingleBinaryADBInterface(ADBInterface):
+    def __init__(self, binary):
+        self.binary = binary
 
-    lines = adb_fast_run(f'su -c "ls -1 {shlex.quote(str(path))}"', prefix=b'ls: ')
+    def list_dir(self, path):
+        path = PurePosixPath(path)
+        logger.debug('Listing directory %s', path)
 
-    return [path/l[:-1].decode('utf-8') for l in lines]
+        lines = self.run(f'{self.binary} ls -1 {shlex.quote(str(path))}', prefix=b'ls: ', root=True)
 
-def adb_read_file(path):
-    logger.debug('Reading file %s', path)
+        return [path/l[:-1].decode('utf-8') for l in lines]
 
-    lines = adb_fast_run(f'su -c "toybox base64 {shlex.quote(str(path))}"', prefix=b'base64: ')
+    def read_file(self, path):
+        path = PurePosixPath(path)
+        logger.debug('Reading file %s', path)
 
-    return BytesIO(base64.b64decode(b''.join(lines)))
+        lines = self.run(f'{self.binary} base64 {shlex.quote(str(path))}', prefix=b'base64: ', root=True)
 
-def adb_get_file_hash(path):
-    logger.debug('Hashing file %s', path)
+        return BytesIO(base64.b64decode(b''.join(lines)))
 
-    # Assume `ls -l` only changes when the file changes
-    lines = adb_fast_run(f'su -c "toybox ls -l {shlex.quote(str(path))}"', prefix=b'ls: ')
+    def hash_file(self, path):
+        path = PurePosixPath(path)
+        logger.debug('Hashing file %s', path)
 
-    # Hash both the metadata and the file's contents
-    key = repr((lines, adb_read_file(path).read())).encode('ascii')
+        # Assume `ls -l` only changes when the file changes
+        lines = self.run(f'{self.binary} ls -l {shlex.quote(str(path))}', prefix=b'ls: ', root=True)
 
-    return hashlib.sha256(key).hexdigest()
+        # Hash both the metadata and the file's contents
+        key = repr((lines, self.read_file(path).read())).encode('ascii')
 
+        return hashlib.sha256(key).hexdigest()
 
 
 def normalize_secret(secret):
@@ -203,10 +225,10 @@ def normalize_secret(secret):
         return secret.upper().rstrip('=')
 
 
-def read_authy_accounts(data_root):
+def read_authy_accounts(adb, data_root):
     for pref_file in ['com.authy.storage.tokens.authenticator.xml', 'com.authy.storage.tokens.authy.xml']:
         try:
-            handle = adb_read_file(data_root/'com.authy.authy/shared_prefs'/pref_file)
+            handle = adb.read_file(data_root/'com.authy.authy/shared_prefs'/pref_file)
         except FileNotFoundError as e:
             continue
 
@@ -223,9 +245,9 @@ def read_authy_accounts(data_root):
             yield TOTPAccount(account['name'], secret=secret, digits=account['digits'], period=period)
 
 
-def read_freeotp_accounts(data_root):
+def read_freeotp_accounts(adb, data_root):
     try:
-        handle = adb_read_file(data_root/'org.fedorahosted.freeotp/shared_prefs/tokens.xml')
+        handle = adb.read_file(data_root/'org.fedorahosted.freeotp/shared_prefs/tokens.xml')
     except FileNotFoundError:
         return
 
@@ -248,9 +270,9 @@ def read_freeotp_accounts(data_root):
             logger.warning('Unknown FreeOTP account type: %s', account['type'])
 
 
-def read_duo_accounts(data_root):
+def read_duo_accounts(adb, data_root):
     try:
-        handle = adb_read_file(data_root/'com.duosecurity.duomobile/files/duokit/accounts.json')
+        handle = adb.read_file(data_root/'com.duosecurity.duomobile/files/duokit/accounts.json')
     except FileNotFoundError:
         return
 
@@ -263,9 +285,9 @@ def read_duo_accounts(data_root):
             yield TOTPAccount(account['name'], secret)
 
 
-def read_google_authenticator_accounts(data_root):
+def read_google_authenticator_accounts(adb, data_root):
     try:
-        database = adb_read_file(data_root/'com.google.android.apps.authenticator2/databases/databases')
+        database = adb.read_file(data_root/'com.google.android.apps.authenticator2/databases/databases')
     except FileNotFoundError:
         return
 
@@ -292,9 +314,9 @@ def read_google_authenticator_accounts(data_root):
         os.unlink(temp_handle.name)
 
 
-def read_microsoft_authenticator_accounts(data_root):
+def read_microsoft_authenticator_accounts(adb, data_root):
     try:
-        database = adb_read_file(data_root/'com.azure.authenticator/databases/PhoneFactor')
+        database = adb.read_file(data_root/'com.azure.authenticator/databases/PhoneFactor')
     except FileNotFoundError:
         return
 
@@ -312,10 +334,10 @@ def read_microsoft_authenticator_accounts(data_root):
         os.unlink(temp_handle.name)
 
 
-def read_andotp_accounts(data_root):
+def read_andotp_accounts(adb, data_root):
     # Parse the preferences file to determine what kind of backups we can have AndOTP generate and where they will reside
     try:
-        handle = adb_read_file(data_root/'org.shadowice.flocke.andotp/shared_prefs/org.shadowice.flocke.andotp_preferences.xml')
+        handle = adb.read_file(data_root/'org.shadowice.flocke.andotp/shared_prefs/org.shadowice.flocke.andotp_preferences.xml')
     except FileNotFoundError:
         return
 
@@ -332,7 +354,7 @@ def read_andotp_accounts(data_root):
         allowed_backup_broadcasts = []
 
     try:
-        initial_backup_files = {f: adb_get_file_hash(f) for f in adb_list_dir(backup_path)}
+        initial_backup_files = {f: adb.hash_file(f) for f in adb.list_dir(backup_path)}
     except FileNotFoundError:
         initial_backup_files = {}
 
@@ -343,13 +365,13 @@ def read_andotp_accounts(data_root):
             logger.error('Reading encrypted AndOTP backups requires PyCryptodome')
             return
 
-        adb_fast_run('am broadcast -a org.shadowice.flocke.andotp.broadcast.ENCRYPTED_BACKUP org.shadowice.flocke.andotp', prefix=b'am: ')
+        adb.run('am broadcast -a org.shadowice.flocke.andotp.broadcast.ENCRYPTED_BACKUP org.shadowice.flocke.andotp', prefix=b'am: ')
     elif 'plain' in allowed_backup_broadcasts:
         if not input('Encrypted AndOTP backups are disabled. Are you sure you want to create a plaintext backup (y/N)? ').lower().startswith('y'):
             logger.info('Aborted AndOTP plaintext backup')
             return
 
-        adb_fast_run('am broadcast -a org.shadowice.flocke.andotp.broadcast.PLAIN_TEXT_BACKUP org.shadowice.flocke.andotp', prefix=b'am: ')
+        adb.run('am broadcast -a org.shadowice.flocke.andotp.broadcast.PLAIN_TEXT_BACKUP org.shadowice.flocke.andotp', prefix=b'am: ')
     else:
         logger.error('No AndOTP backup broadcasts are setup. Please enable at least encrypted backups in the AndOTP settings.')
         return
@@ -363,7 +385,7 @@ def read_andotp_accounts(data_root):
             logger.info('Waiting for AndOTP to generate the backup file (attempt %d)', i + 1)
             time.sleep(1)
 
-            new_backups = [f for f in adb_list_dir(backup_path) if initial_backup_files.get(f) != adb_get_file_hash(f)]
+            new_backups = [f for f in adb.list_dir(backup_path) if initial_backup_files.get(f) != adb.hash_file(f)]
 
             if not new_backups:
                 continue
@@ -371,7 +393,7 @@ def read_andotp_accounts(data_root):
             logger.debug('Found AndOTP backup files: %s', new_backups)
 
             backup_file = new_backups[0]
-            backup_data = adb_read_file(backup_file)
+            backup_data = adb.read_file(backup_file)
             break
         except FileNotFoundError:
             continue
@@ -404,7 +426,7 @@ def read_andotp_accounts(data_root):
 
         if backup_file.suffix == '.json':
             if not input('Do you want to delete the plaintext backup (y/N)? ').lower().startswith('y'):
-                adb_fast_run(f'su -c "rm {shlex.quote(str(backup_file))}"', prefix=b'rm: ')
+                adb.run(f'rm {shlex.quote(str(backup_file))}', prefix=b'rm: ', root=True)
 
     for account in json.loads(accounts_json):
         if account['type'] == 'TOTP':
@@ -417,16 +439,16 @@ def read_andotp_accounts(data_root):
             logger.warning('Unknown AndOTP account type: %s', account['type'])
 
 
-def read_steam_authenticator_accounts(data_root):
+def read_steam_authenticator_accounts(adb, data_root):
     accounts_folder = 'com.valvesoftware.android.steam.community/files'
 
     try:
-        account_files = adb_list_dir(data_root/accounts_folder)
+        account_files = adb.list_dir(data_root/accounts_folder)
     except FileNotFoundError:
         return
 
     for account_file in account_files:
-        account_json = json.load(adb_read_file(account_file))
+        account_json = json.load(adb.read_file(account_file))
 
         secret = base64.b32encode(base64.b64decode(account_json['shared_secret'])).decode('ascii')
 
@@ -513,18 +535,43 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    logger.setLevel([logging.INFO, logging.DEBUG, TRACE][max(args.verbose, 0)])
+    logger.setLevel([logging.INFO, logging.DEBUG, TRACE][min(max(0, args.verbose), 2)])
 
+
+    adb = None
+
+    for binary in ['toybox', 'busybox']:
+        logger.info('Testing if your phone uses %s...', binary)
+
+        test = SingleBinaryADBInterface(binary)
+
+        try:
+            files = test.list_dir('/')
+
+            logger.debug('Contents of / are: %s', files)
+
+            if not files:
+                raise IOError('Root is empty')
+        except (IOError, RuntimeError) as e:
+            logger.warning('Could not list /: %s', e)
+            continue
+
+        logger.info('It does!')
+        adb = test
+        break
+    else:
+        logger.error('Could not find a suitable file reading interface!')
+        sys.exit(1)
 
     logger.info('Checking for root by listing the contents of %s. You might have to grant ADB temporary root access.', args.data)
 
-    if not adb_list_dir(args.data):
+    if not adb.list_dir(args.data):
         logger.error('Root not found or data directory is incorrect!')
         sys.exit(1)
 
     logger.info('Checking if files can be properly read by reading $ANDROID_ROOT/build.prop')
 
-    if not adb_read_file('$ANDROID_ROOT/build.prop'):
+    if not adb.read_file('$ANDROID_ROOT/build.prop'):
         logger.error('Root not found or unable to dump file contents!')
         sys.exit(1)
 
@@ -544,7 +591,7 @@ if __name__ == '__main__':
             continue
 
         logger.info('Reading %s accounts', name)
-        new = list(function(args.data))
+        new = list(function(adb, args.data))
         old_count = len(accounts)
 
         accounts.update(new)
