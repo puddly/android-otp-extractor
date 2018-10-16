@@ -134,6 +134,7 @@ class SteamAccount(TOTPAccount):
     def __init__(self, name, secret, issuer=None):
         super().__init__(name, secret, issuer, digits=5)
 
+
 class ADBInterface:
     def run(self, command, *, prefix, root=False):
         sentinel = '3bb22bb739c29e435151cb38'
@@ -524,6 +525,7 @@ if __name__ == '__main__':
     parser.add_argument('--no-steam-authenticator', action='store_true', help='no Steam Authenticator codes')
 
     parser.add_argument('--data', type=PurePosixPath, default=PurePosixPath('$ANDROID_DATA/data/'), help='path to the app data folder')
+    parser.add_argument('--busybox-path', type=PurePosixPath, default=None, help='path to {Busy,Toy}box supporting base64 and ls')
 
     parser.add_argument('--no-show-uri', action='store_true', help='disable printing the accounts as otpauth:// URIs')
     parser.add_argument('--show-qr', action='store_true', help='displays the accounts as a local webpage with scannable QR codes')
@@ -537,31 +539,33 @@ if __name__ == '__main__':
 
     logger.setLevel([logging.INFO, logging.DEBUG, TRACE][min(max(0, args.verbose), 2)])
 
-
-    adb = None
-
-    for binary in ['toybox', 'busybox']:
-        logger.info('Testing if your phone uses %s...', binary)
-
-        test = SingleBinaryADBInterface(binary)
-
-        try:
-            files = test.list_dir('/')
-
-            logger.debug('Contents of / are: %s', files)
-
-            if not files:
-                raise IOError('Root is empty')
-        except (IOError, RuntimeError) as e:
-            logger.warning('Could not list /: %s', e)
-            continue
-
-        logger.info('It does!')
-        adb = test
-        break
+    if args.busybox_path is not None:
+        adb = SingleBinaryADBInterface(args.busybox_path)
     else:
-        logger.error('Could not find a suitable file reading interface!')
-        sys.exit(1)
+        adb = None
+
+        for binary in ['toybox', 'busybox']:
+            logger.info('Testing if your phone uses %s...', binary)
+
+            test = SingleBinaryADBInterface(binary)
+
+            try:
+                files = test.list_dir('/')
+
+                logger.debug('Contents of / are: %s', files)
+
+                if not files:
+                    raise IOError('Root is empty')
+            except (IOError, RuntimeError) as e:
+                logger.warning('Could not list /: %s', e)
+                continue
+
+            logger.info('It does!')
+            adb = test
+            break
+        else:
+            logger.error('Could not find a suitable file reading interface!')
+            sys.exit(1)
 
     logger.info('Checking for root by listing the contents of %s. You might have to grant ADB temporary root access.', args.data)
 
