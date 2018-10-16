@@ -149,7 +149,7 @@ class ADBInterface:
         lines = []
         process = subprocess.Popen(
             args=['adb', 'shell', command + f'; ls /{sentinel}'],
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL
         )
 
         logger.trace('Running %s', process.args)
