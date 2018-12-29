@@ -148,13 +148,14 @@ class ADBInterface:
         # the stream, allowing us to let `adb shell` finish up its stuff in the background.
         lines = []
         process = subprocess.Popen(
-            args=['adb', 'shell', command + f'; ls /{sentinel}'],
+            args=['adb', 'shell', '-x', command + f'; ls /{sentinel}'],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL
         )
 
         logger.trace('Running %s', process.args)
 
         for line in process.stdout:
+            line = line.strip()
             logger.trace('Read: %s', line)
 
             if b'/' + sentinel.encode('ascii') in line:
@@ -196,7 +197,7 @@ class SingleBinaryADBInterface(ADBInterface):
 
         lines = self.run(f'{self.binary} ls -1 {shlex.quote(str(path))}', prefix=b'ls: ', root=True)
 
-        return [path/l[:-1].decode('utf-8') for l in lines]
+        return lines
 
     def read_file(self, path):
         path = PurePosixPath(path)
@@ -449,7 +450,11 @@ def read_steam_authenticator_accounts(adb, data_root):
         return
 
     for account_file in account_files:
-        account_json = json.load(adb.read_file(account_file))
+        try:
+            account_file = account_file.decode('utf-8')
+        except AttributeError:
+            pass
+        account_json = json.load(adb.read_file(data_root/accounts_folder/account_file))
 
         secret = base64.b32encode(base64.b64decode(account_json['shared_secret'])).decode('ascii')
 
