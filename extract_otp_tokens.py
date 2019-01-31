@@ -137,10 +137,8 @@ class SteamAccount(TOTPAccount):
 
 class ADBInterface:
     def run(self, command, *, prefix, root=False):
-        sentinel = '3bb22bb739c29e435151cb38'
-
         if root:
-            command = f'su -c "{command}"'
+            command = f'su -c "{command}; echo __end__"'
 
         # `adb exec-out` doesn't work properly on some devices. We have to fall back to `adb shell`,
         # which takes at least 600ms to exit even if the actual command runs quickly.
@@ -148,7 +146,7 @@ class ADBInterface:
         # the stream, allowing us to let `adb shell` finish up its stuff in the background.
         lines = []
         process = subprocess.Popen(
-            args=['adb', 'shell', command + f'; ls /{sentinel}'],
+            args=['adb', 'shell', command],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL
         )
 
@@ -157,7 +155,7 @@ class ADBInterface:
         for line in process.stdout:
             logger.trace('Read: %s', line)
 
-            if b'/' + sentinel.encode('ascii') in line:
+            if line.startswith(b'__end__'):
                 return lines
             elif b': not found' in line:
                 raise RuntimeError('Binary not found')
