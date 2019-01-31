@@ -137,12 +137,13 @@ class SteamAccount(TOTPAccount):
 
 class ADBInterface:
     def run(self, command, *, prefix, root=False):
+        end_tag = '3bb22bb739c29e435151cb38'
         if root:
-            command = f'su -c "{command}; echo __end__"'
+            command = f'su -c "{command}; echo {end_tag}"'
 
         # `adb exec-out` doesn't work properly on some devices. We have to fall back to `adb shell`,
         # which takes at least 600ms to exit even if the actual command runs quickly.
-        # Reading a unique, non-existent file prints a predictable error message that delimits the end of
+        # Echoing a unique, non-existent string (end_tag) marks the end of
         # the stream, allowing us to let `adb shell` finish up its stuff in the background.
         lines = []
         process = subprocess.Popen(
@@ -155,7 +156,7 @@ class ADBInterface:
         for line in process.stdout:
             logger.trace('Read: %s', line)
 
-            if line.startswith(b'__end__'):
+            if line.startswith(end_tag.encode('ascii')):
                 return lines
             elif b': not found' in line:
                 raise RuntimeError('Binary not found')
