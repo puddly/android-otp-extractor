@@ -138,8 +138,9 @@ class SteamAccount(TOTPAccount):
 class ADBInterface:
     def run(self, command, *, prefix, root=False):
         end_tag = '3bb22bb739c29e435151cb38'
+
         if root:
-            command = f'su -c "{command}; echo {end_tag}"'
+            command = f'su -c "{command}"'
 
         # `adb exec-out` doesn't work properly on some devices. We have to fall back to `adb shell`,
         # which takes at least 600ms to exit even if the actual command runs quickly.
@@ -147,7 +148,7 @@ class ADBInterface:
         # the stream, allowing us to let `adb shell` finish up its stuff in the background.
         lines = []
         process = subprocess.Popen(
-            args=['adb', 'shell', command],
+            args=['adb', 'shell', command + f'; echo {end_tag}'],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL
         )
 
