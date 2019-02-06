@@ -139,6 +139,8 @@ class ADBInterface:
     def run(self, command, *, prefix, root=False):
         end_tag = '3bb22bb739c29e435151cb38'
 
+        command = f'{command}; echo {end_tag}'
+
         if root:
             command = f'su -c "{command}"'
 
@@ -148,7 +150,7 @@ class ADBInterface:
         # the stream, allowing us to let `adb shell` finish up its stuff in the background.
         lines = []
         process = subprocess.Popen(
-            args=['adb', 'shell', command + f'; echo {end_tag}'],
+            args=['adb', 'shell', command],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL
         )
 
@@ -292,11 +294,11 @@ def read_google_authenticator_accounts(adb, data_root):
     except FileNotFoundError:
         return
 
-    with NamedTemporaryFile(delete=False) as temp_handle:
-        temp_handle.write(database.read())
+    with NamedTemporaryFile(delete=False) as temp_database:
+        temp_database.write(database.read())
 
     try:
-        connection = sqlite3.connect(temp_handle.name)
+        connection = sqlite3.connect(temp_database.name)
         cursor = connection.cursor()
         cursor.execute('SELECT email, original_name, secret, counter, type, issuer FROM accounts;')
 
@@ -312,7 +314,7 @@ def read_google_authenticator_accounts(adb, data_root):
 
         connection.close()
     finally:
-        os.unlink(temp_handle.name)
+        os.unlink(temp_database.name)
 
 
 def read_microsoft_authenticator_accounts(adb, data_root):
@@ -321,18 +323,18 @@ def read_microsoft_authenticator_accounts(adb, data_root):
     except FileNotFoundError:
         return
 
-    with NamedTemporaryFile(delete=False) as temp_handle:       
-        temp_handle.write(database.read())
+    with NamedTemporaryFile(delete=False) as temp_database:
+        temp_database.write(database.read())
 
     try:
-        connection = sqlite3.connect(temp_handle.name)
+        connection = sqlite3.connect(temp_database.name)
         cursor = connection.cursor()
         cursor.execute('SELECT name, oath_secret_key FROM accounts WHERE account_type=0;')
 
         for name, secret in cursor.fetchall():
             yield TOTPAccount(name, secret)
     finally:
-        os.unlink(temp_handle.name)
+        os.unlink(temp_database.name)
 
 
 def read_andotp_accounts(adb, data_root):
