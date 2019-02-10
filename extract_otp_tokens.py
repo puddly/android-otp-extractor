@@ -17,7 +17,7 @@ import subprocess
 
 from io import BytesIO
 from pathlib import PurePosixPath, Path
-from tempfile import NamedTemporaryFile
+from tempfile import NamedTemporaryFile, TemporaryDirectory
 from xml.etree import ElementTree
 from collections import namedtuple
 from urllib.parse import quote, urlencode
@@ -289,32 +289,47 @@ def read_duo_accounts(adb, data_root):
 
 
 def read_google_authenticator_accounts(adb, data_root):
+    have_wal = False;
+    database_root = data_root/'com.google.android.apps.authenticator2/databases'
     try:
-        database = adb.read_file(data_root/'com.google.android.apps.authenticator2/databases/databases')
+        database = adb.read_file(database_root/'databases')
     except FileNotFoundError:
         return
 
-    with NamedTemporaryFile(delete=False) as temp_database:
-        temp_database.write(database.read())
-
     try:
-        connection = sqlite3.connect(temp_database.name)
-        cursor = connection.cursor()
-        cursor.execute('SELECT email, original_name, secret, counter, type, issuer FROM accounts;')
+        database_shm = adb.read_file(database_root/'databases-shm')
+        database_wal = adb.read_file(database_root/'databases-wal')
+        have_wal = True;
+    except FileNotFoundError:
+        pass
 
-        for email, name, secret, counter, type, issuer in cursor.fetchall():
-            name = name if name is not None else email
+    with TemporaryDirectory() as temp_dir:
+        temp_db_path = temp_dir + '/database'
+        with open(temp_db_path, 'wb') as db, \
+             open(temp_db_path + '-shm', 'wb') as db_shm, \
+             open(temp_db_path + '-wal', 'wb') as db_wal:
+            db.write(database.read())
+            if have_wal:
+                db_shm.write(database_shm.read())
+                db_wal.write(database_wal.read())
+            yield from read_google_authenticator_database(db.name)
 
-            if type == 0:
-                yield TOTPAccount(name, secret, issuer=issuer)
-            elif type == 1:
-                yield HOTPAccount(name, secret, issuer=issuer, counter=counter)
-            else:
-                logger.warning('Unknown Google Authenticator account type: %s', type)
+def read_google_authenticator_database(db_path):
+    connection = sqlite3.connect(db_path)
+    cursor = connection.cursor()
+    cursor.execute('SELECT email, original_name, secret, counter, type, issuer FROM accounts;')
 
-        connection.close()
-    finally:
-        os.unlink(temp_database.name)
+    for email, name, secret, counter, type, issuer in cursor.fetchall():
+        name = name if name is not None else email
+
+        if type == 0:
+            yield TOTPAccount(name, secret, issuer=issuer)
+        elif type == 1:
+            yield HOTPAccount(name, secret, issuer=issuer, counter=counter)
+        else:
+            logger.warning('Unknown Google Authenticator account type: %s', type)
+
+    connection.close()
 
 
 def read_microsoft_authenticator_accounts(adb, data_root):
