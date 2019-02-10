@@ -10,15 +10,15 @@ import getpass
 import logging
 import sqlite3
 import hashlib
-import tempfile
 import argparse
 import webbrowser
 import subprocess
 
 from io import BytesIO
 from pathlib import PurePosixPath, Path
-from tempfile import NamedTemporaryFile
+from tempfile import NamedTemporaryFile, TemporaryDirectory
 from xml.etree import ElementTree
+from contextlib import contextmanager
 from collections import namedtuple
 from urllib.parse import quote, urlencode
 from urllib.request import pathname2url
@@ -202,11 +202,13 @@ class SingleBinaryADBInterface(ADBInterface):
 
     def read_file(self, path):
         path = PurePosixPath(path)
-        logger.debug('Reading file %s', path)
 
+        logger.debug('Trying to read file %s', path)
         lines = self.run(f'{self.binary} base64 {shlex.quote(str(path))}', prefix=b'base64: ', root=True)
+        contents = base64.b64decode(b''.join(lines))
+        logger.debug('Successfully read %d bytes', len(contents))
 
-        return BytesIO(base64.b64decode(b''.join(lines)))
+        return BytesIO(contents)
 
     def hash_file(self, path):
         path = PurePosixPath(path)
@@ -228,11 +230,38 @@ def normalize_secret(secret):
         return secret.upper().rstrip('=')
 
 
+@contextmanager
+def open_remote_sqlite_database(adb, database):
+    database = PurePosixPath(database)
+
+    with TemporaryDirectory() as temp_dir:
+        temp_dir = Path(temp_dir)
+
+        for suffix in ['', '-journal', '-wal', '-shm']:
+            remote_file = database.with_name(database.name + suffix)
+
+            try:
+                contents = adb.read_file(remote_file)
+            except FileNotFoundError as e:
+                if suffix != '':
+                    continue
+
+                # Throw the original exception if the db file cannot be read
+                raise e
+
+            with (temp_dir/remote_file.name).open('wb') as local_file:
+                local_file.write(contents.read())
+
+        connection = sqlite3.connect(temp_dir/database.name)
+        yield connection
+        connection.close()
+
+
 def read_authy_accounts(adb, data_root):
     for pref_file in ['com.authy.storage.tokens.authenticator.xml', 'com.authy.storage.tokens.authy.xml']:
         try:
             handle = adb.read_file(data_root/'com.authy.authy/shared_prefs'/pref_file)
-        except FileNotFoundError as e:
+        except FileNotFoundError:
             continue
 
         accounts = json.loads(ElementTree.parse(handle).find('string').text)
@@ -290,51 +319,33 @@ def read_duo_accounts(adb, data_root):
 
 def read_google_authenticator_accounts(adb, data_root):
     try:
-        database = adb.read_file(data_root/'com.google.android.apps.authenticator2/databases/databases')
+        with open_remote_sqlite_database(adb, data_root/'com.google.android.apps.authenticator2/databases/databases') as connection:
+            cursor = connection.cursor()
+            cursor.execute('SELECT email, original_name, secret, counter, type, issuer FROM accounts;')
+
+            for email, name, secret, counter, type, issuer in cursor.fetchall():
+                name = name if name is not None else email
+
+                if type == 0:
+                    yield TOTPAccount(name, secret, issuer=issuer)
+                elif type == 1:
+                    yield HOTPAccount(name, secret, issuer=issuer, counter=counter)
+                else:
+                    logger.warning('Unknown Google Authenticator account type: %s', type)
     except FileNotFoundError:
         return
-
-    with NamedTemporaryFile(delete=False) as temp_database:
-        temp_database.write(database.read())
-
-    try:
-        connection = sqlite3.connect(temp_database.name)
-        cursor = connection.cursor()
-        cursor.execute('SELECT email, original_name, secret, counter, type, issuer FROM accounts;')
-
-        for email, name, secret, counter, type, issuer in cursor.fetchall():
-            name = name if name is not None else email
-
-            if type == 0:
-                yield TOTPAccount(name, secret, issuer=issuer)
-            elif type == 1:
-                yield HOTPAccount(name, secret, issuer=issuer, counter=counter)
-            else:
-                logger.warning('Unknown Google Authenticator account type: %s', type)
-
-        connection.close()
-    finally:
-        os.unlink(temp_database.name)
 
 
 def read_microsoft_authenticator_accounts(adb, data_root):
     try:
-        database = adb.read_file(data_root/'com.azure.authenticator/databases/PhoneFactor')
+        with open_remote_sqlite_database(adb, data_root/'com.azure.authenticator/databases/PhoneFactor') as connection:
+            cursor = connection.cursor()
+            cursor.execute('SELECT name, oath_secret_key FROM accounts WHERE account_type=0;')
+
+            for name, secret in cursor.fetchall():
+                yield TOTPAccount(name, secret)
     except FileNotFoundError:
         return
-
-    with NamedTemporaryFile(delete=False) as temp_database:
-        temp_database.write(database.read())
-
-    try:
-        connection = sqlite3.connect(temp_database.name)
-        cursor = connection.cursor()
-        cursor.execute('SELECT name, oath_secret_key FROM accounts WHERE account_type=0;')
-
-        for name, secret in cursor.fetchall():
-            yield TOTPAccount(name, secret)
-    finally:
-        os.unlink(temp_database.name)
 
 
 def read_andotp_accounts(adb, data_root):
@@ -505,7 +516,7 @@ def display_qr_codes(accounts, prepend_issuer=False):
         </body>''' % json.dumps([a.as_uri(prepend_issuer) for a in accounts])
 
     # Temporary files are only readable by the current user (mode 0600)
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.html') as handle:
+    with NamedTemporaryFile(delete=False, suffix='.html') as handle:
         handle.write(accounts_html.encode('utf-8'))
 
     try:
