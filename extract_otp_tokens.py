@@ -145,7 +145,7 @@ class ADBInterface:
             command = f'su -c "{command}"'
 
         # `adb exec-out` doesn't work properly on some devices. We have to fall back to `adb shell`,
-        # which takes at least 600ms to exit even if the actual command runs quickly.
+        # which takes at least 600ms to exit with `su` even if the actual command runs quickly.
         # Echoing a unique, non-existent string (end_tag) marks the end of
         # the stream, allowing us to let `adb shell` finish up its stuff in the background.
         lines = []
@@ -153,7 +153,6 @@ class ADBInterface:
             args=['adb', 'shell', command],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL
         )
-
         logger.trace('Running %s', process.args)
 
         for line in process.stdout:
@@ -198,7 +197,8 @@ class SingleBinaryADBInterface(ADBInterface):
 
         lines = self.run(f'{self.binary} ls -1 {shlex.quote(str(path))}', prefix=b'ls: ', root=True)
 
-        return [path/l[:-1].decode('utf-8') for l in lines]
+        # There apparently exist phones that don't use just newlines (see pull #24)
+        return [path/l.rstrip(b'\r\n').decode('utf-8') for l in lines]
 
     def read_file(self, path):
         path = PurePosixPath(path)
