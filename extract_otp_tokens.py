@@ -252,7 +252,7 @@ def open_remote_sqlite_database(adb, database):
             with (temp_dir/remote_file.name).open('wb') as local_file:
                 local_file.write(contents.read())
 
-        connection = sqlite3.connect(temp_dir/database.name)
+        connection = sqlite3.connect(str(temp_dir/database.name))
         yield connection
         connection.close()
 
