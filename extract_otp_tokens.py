@@ -534,13 +534,6 @@ def display_qr_codes(accounts, prepend_issuer=False):
 
 
 if __name__ == '__main__':
-    if sys.version_info < (3, 7):
-        simple_version = '.'.join(map(str, sys.version_info[:3]))
-        logger.error('This script requires at least Python 3.7.0, but you are running Python %s.', simple_version)
-        logger.error('Things will probably break.')
-        logger.error('Press [Enter] to continue.')
-        input('')
-
     parser = argparse.ArgumentParser(description='Extracts TOTP secrets from a rooted Android phone.', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--no-andotp', action='store_true', help='do not create and parse an AndOTP backup')
     parser.add_argument('--no-authy', action='store_true', help='no Authy codes')
