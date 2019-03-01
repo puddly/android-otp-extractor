@@ -372,6 +372,8 @@ def read_andotp_accounts(adb, data_root):
     except FileNotFoundError:
         initial_backup_files = {}
 
+    logger.info('Sending AndOTP a broadcast to create a backup. This may take a few seconds...')
+
     if 'encrypted' in allowed_backup_broadcasts:
         try:
             from Crypto.Cipher import AES
@@ -412,29 +414,36 @@ def read_andotp_accounts(adb, data_root):
         except FileNotFoundError:
             continue
     else:
-        logger.error('Could not read the AndOTP backup file. Do you have a backup password set?')
+        logger.error('Could not find the AndOTP backup file. Do you have a backup password set?')
         return
 
     if 'encrypted' in allowed_backup_broadcasts:
-        backup_password = getpass.getpass('Enter the AndOTP backup password: ')
+        while True:
+            backup_password = getpass.getpass('Enter the AndOTP backup password: ')
 
-        # Structure of backup file (github.com/asmw/andOTP-decrypt)
-        size = len(backup_data.getvalue())
+            if not backup_password:
+                logger.warning('Aborting AndOTP export because user did not enter a password!')
+                return
 
-        nonce = backup_data.read(12)
-        ciphertext = backup_data.read(size - 12 - 16)
-        tag = backup_data.read(16)
+            # Structure of backup file (github.com/asmw/andOTP-decrypt)
+            size = len(backup_data.getvalue())
 
-        key = hashlib.sha256(backup_password.encode('utf-8')).digest()
+            backup_data.seek(0)
+            nonce = backup_data.read(12)
+            ciphertext = backup_data.read(size - 12 - 16)
+            tag = backup_data.read(16)
 
-        cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
+            key = hashlib.sha256(backup_password.encode('utf-8')).digest()
 
-        try:
-            accounts_json = cipher.decrypt(ciphertext)
-            cipher.verify(tag)
-        except ValueError:
-            logger.error('Could not decrypt the AndOTP backup. Is your password correct?')
-            return
+            cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
+
+            try:
+                accounts_json = cipher.decrypt(ciphertext)
+                cipher.verify(tag)
+                break
+            except ValueError:
+                logger.error('Could not decrypt the AndOTP backup. Is your password correct?')
+                continue
     else:
         accounts_json = backup_data.read()
 
