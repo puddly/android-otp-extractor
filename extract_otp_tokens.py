@@ -624,7 +624,26 @@ if __name__ == '__main__':
         new = list(function(adb, args.data))
         old_count = len(accounts)
 
-        accounts.update(new)
+        for account in new:
+            logger.debug('Found an account %s', account)
+
+            if not isinstance(account, HOTPAccount):
+                accounts.add(account)
+                continue
+
+            try:
+                duplicate = next(account for other in accounts if account.counterless_eq(other))
+            except StopIteration:
+                accounts.add(account)
+                continue
+
+            logger.warning('Identical HOTP accounts exist with different counters: %s != %s', account, duplicate)
+            logger.warning('Picking the one with the largest counter.')
+
+            if duplicate.counter < account.counter:
+                accounts.remove(duplicate)
+                account.add(account)
+
         logger.info('Found %d accounts (%d new)', len(new), len(accounts) - old_count)
 
     if not args.no_show_uri:
