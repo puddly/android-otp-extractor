@@ -11,6 +11,7 @@ import logging
 import sqlite3
 import hashlib
 import argparse
+import contextlib
 import webbrowser
 import subprocess
 
@@ -18,12 +19,9 @@ from io import BytesIO
 from pathlib import PurePosixPath, Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 from xml.etree import ElementTree
-from contextlib import contextmanager
-from collections import namedtuple
 from urllib.parse import quote, urlencode
 from urllib.request import pathname2url
 
-Account = namedtuple('Account', ['name', 'digits', 'period', 'secret', 'type', 'algorithm'])
 
 TRACE = logging.DEBUG - 5
 logging.addLevelName(TRACE, 'TRACE')
@@ -227,7 +225,7 @@ def normalize_secret(secret):
         return secret.upper().rstrip('=')
 
 
-@contextmanager
+@contextlib.contextmanager
 def open_remote_sqlite_database(adb, database):
     database = PurePosixPath(database)
 
@@ -240,18 +238,17 @@ def open_remote_sqlite_database(adb, database):
             try:
                 contents = adb.read_file(remote_file)
             except FileNotFoundError as e:
-                if suffix != '':
-                    continue
+                # Throw the original exception if the actual db file cannot be read
+                if suffix == '':
+                    raise e
+            else:
+                with (temp_dir/remote_file.name).open('wb') as local_file:
+                    local_file.write(contents.read())
 
-                # Throw the original exception if the db file cannot be read
-                raise e
+        db_path = str(temp_dir/database.name)
 
-            with (temp_dir/remote_file.name).open('wb') as local_file:
-                local_file.write(contents.read())
-
-        connection = sqlite3.connect(str(temp_dir/database.name))
-        yield connection
-        connection.close()
+        with contextlib.closing(sqlite3.connect(db_path)) as connection:
+            yield connection
 
 
 def read_authy_accounts(adb, data_root):
@@ -386,7 +383,7 @@ def read_andotp_accounts(adb, data_root):
 
         adb.run('am broadcast -a org.shadowice.flocke.andotp.broadcast.PLAIN_TEXT_BACKUP org.shadowice.flocke.andotp', prefix=b'am: ')
     else:
-        logger.error('No AndOTP backup broadcasts are setup. Please enable at least encrypted backups in the AndOTP settings.')
+        logger.error('No AndOTP backup broadcasts are setup. Please enable encrypted backups.')
         return
 
     backup_data = None
@@ -460,10 +457,8 @@ def read_andotp_accounts(adb, data_root):
 
 
 def read_steam_authenticator_accounts(adb, data_root):
-    accounts_folder = 'com.valvesoftware.android.steam.community/files'
-
     try:
-        account_files = adb.list_dir(data_root/accounts_folder)
+        account_files = adb.list_dir(data_root/'com.valvesoftware.android.steam.community/files')
     except FileNotFoundError:
         return
 
@@ -522,14 +517,14 @@ def display_qr_codes(accounts, prepend_issuer=False):
         </body>''' % json.dumps([a.as_uri(prepend_issuer) for a in accounts])
 
     # Temporary files are only readable by the current user (mode 0600)
-    with NamedTemporaryFile(delete=False, suffix='.html') as handle:
-        handle.write(accounts_html.encode('utf-8'))
+    with NamedTemporaryFile(delete=False, suffix='.html') as temp_html_file:
+        temp_html_file.write(accounts_html.encode('utf-8'))
 
     try:
-        webbrowser.open(f'file:{pathname2url(handle.name)}')
+        webbrowser.open(f'file:{pathname2url(temp_html_file.name)}')
         time.sleep(10)  # webbrowser.open exits immediately so we should wait before deleting the file
     finally:
-        os.remove(handle.name)
+        os.remove(temp_html_file.name)
 
 
 
