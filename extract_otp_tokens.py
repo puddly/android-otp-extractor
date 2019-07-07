@@ -337,7 +337,7 @@ def read_microsoft_authenticator_accounts(adb, data_root):
     try:
         with open_remote_sqlite_database(adb, data_root/'com.azure.authenticator/databases/PhoneFactor') as connection:
             cursor = connection.cursor()
-            cursor.execute('SELECT name, oath_secret_key FROM accounts WHERE account_type=0;')
+            cursor.execute('SELECT name, oath_secret_key FROM accounts;')
 
             for name, secret in cursor.fetchall():
                 yield TOTPAccount(name, secret)
