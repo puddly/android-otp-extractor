@@ -254,11 +254,11 @@ def open_remote_sqlite_database(adb, database):
 def read_authy_accounts(adb, data_root):
     for pref_file in ['com.authy.storage.tokens.authenticator.xml', 'com.authy.storage.tokens.authy.xml']:
         try:
-            handle = adb.read_file(data_root/'com.authy.authy/shared_prefs'/pref_file)
+            f = adb.read_file(data_root/'com.authy.authy/shared_prefs'/pref_file)
         except FileNotFoundError:
             continue
 
-        accounts = json.loads(ElementTree.parse(handle).find('string').text)
+        accounts = json.loads(ElementTree.parse(f).find('string').text)
 
         for account in accounts:
             if 'decryptedSecret' in account:
@@ -273,11 +273,11 @@ def read_authy_accounts(adb, data_root):
 
 def read_freeotp_accounts(adb, data_root):
     try:
-        handle = adb.read_file(data_root/'org.fedorahosted.freeotp/shared_prefs/tokens.xml')
+        f = adb.read_file(data_root/'org.fedorahosted.freeotp/shared_prefs/tokens.xml')
     except FileNotFoundError:
         return
 
-    for string in ElementTree.parse(handle).findall('string'):
+    for string in ElementTree.parse(f).findall('string'):
         account = json.loads(string.text)
 
         # <string name="tokenOrder"> doesn't contain an account
@@ -298,11 +298,11 @@ def read_freeotp_accounts(adb, data_root):
 
 def read_duo_accounts(adb, data_root):
     try:
-        handle = adb.read_file(data_root/'com.duosecurity.duomobile/files/duokit/accounts.json')
+        f = adb.read_file(data_root/'com.duosecurity.duomobile/files/duokit/accounts.json')
     except FileNotFoundError:
         return
 
-    for account in json.load(handle):
+    for account in json.load(f):
         secret = account['otpGenerator']['otpSecret']
 
         if 'counter' in account['otpGenerator']:
@@ -345,11 +345,11 @@ def read_microsoft_authenticator_accounts(adb, data_root):
 def read_andotp_accounts(adb, data_root):
     # Parse the preferences file to determine what kind of backups we can have AndOTP generate and where they will reside
     try:
-        handle = adb.read_file(data_root/'org.shadowice.flocke.andotp/shared_prefs/org.shadowice.flocke.andotp_preferences.xml')
+        f = adb.read_file(data_root/'org.shadowice.flocke.andotp/shared_prefs/org.shadowice.flocke.andotp_preferences.xml')
     except FileNotFoundError:
         return
 
-    preferences = ElementTree.parse(handle)
+    preferences = ElementTree.parse(f)
 
     try:
         backup_path = PurePosixPath(preferences.find('.//string[@name="pref_backup_directory"]').text)
@@ -419,25 +419,50 @@ def read_andotp_accounts(adb, data_root):
                 logger.warning('Aborting AndOTP export because user did not enter a password!')
                 return
 
-            # Structure of backup file (github.com/asmw/andOTP-decrypt)
-            size = len(backup_data.getvalue())
+            success = False
 
-            backup_data.seek(0)
-            nonce = backup_data.read(12)
-            ciphertext = backup_data.read(size - 12 - 16)
-            tag = backup_data.read(16)
+            for new_format in (False, True):
+                backup_data.seek(0)
 
-            key = hashlib.sha256(backup_password.encode('utf-8')).digest()
+                if new_format:
+                    num_iterations = int.from_bytes(backup_data.read(4), 'big')
+                    salt = backup_data.read(12)
+                    key = hashlib.pbkdf2_hmac(
+                        hash_name='sha1', 
+                        password=backup_password.encode('utf-8'),
+                        salt=salt, 
+                        iterations=num_iterations, 
+                        dklen=32
+                    )
+                else:
+                    key = hashlib.sha256(backup_password.encode('utf-8')).digest()
 
-            cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
+                # Only the new format has a "header"
+                data = BytesIO(backup_data.read())
 
-            try:
-                accounts_json = cipher.decrypt(ciphertext)
-                cipher.verify(tag)
+                # Structure of backup file (github.com/asmw/andOTP-decrypt)
+                size = len(data.getvalue())
+
+                nonce = data.read(12)
+                ciphertext = data.read(size - 12 - 16)
+                tag = data.read(16)
+
+                cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
+
+                try:
+                    accounts_json = cipher.decrypt(ciphertext)
+                    cipher.verify(tag)
+                    success = True
+                    break
+                except ValueError:
+                    if new_format:
+                        # At this point we've tried both formats so the password is wrong
+                        logger.error('Could not decrypt the AndOTP backup. Is your password correct?')
+
+                    continue
+
+            if success:
                 break
-            except ValueError:
-                logger.error('Could not decrypt the AndOTP backup. Is your password correct?')
-                continue
     else:
         accounts_json = backup_data.read()
 
@@ -642,5 +667,5 @@ if __name__ == '__main__':
         display_qr_codes(accounts, args.prepend_issuer)
 
     if args.andotp_backup:
-        with open(args.andotp_backup, 'w') as handle:
-            handle.write(json.dumps([a.as_andotp() for a in accounts]))
+        with open(args.andotp_backup, 'w') as f:
+            f.write(json.dumps([a.as_andotp() for a in accounts]))
