@@ -495,6 +495,32 @@ def read_steam_authenticator_accounts(adb, data_root):
         yield SteamAccount(account_json['account_name'], secret)
 
 
+def read_aegis_accounts(adb, data_root):
+    try:
+        f = adb.read_file(data_root/'com.beemdevelopment.aegis/files/aegis.json')
+    except FileNotFoundError:
+        return
+
+    aegis = json.load(f)
+    db = aegis['db']
+
+    if db['version'] != 1:
+        logger.error('Invalid Aegis DB version: %d. Only 1 is supported.', db['version'])
+        return
+
+    for entry in db['entries']:
+        info = entry['info']
+
+        if entry['type'] == 'totp':
+            yield TOTPAccount(entry['name'], issuer=entry['issuer'], secret=info['secret'], algorithm=info['algo'], digits=info['digits'], period=info['period'])
+        elif entry['type'] == 'hotp':
+            yield HOTPAccount(entry['name'], issuer=entry['issuer'], secret=info['secret'], algorithm=info['algo'], digits=info['digits'], counter=info['counter'])
+        elif entry['type'] == 'steam':
+            yield SteamAccount(entry['name'], issuer=entry['issuer'], secret=info['secret'])
+        else:
+            logger.warning('Unknown Aegis account type: %s', entry['type'])
+
+
 def display_qr_codes(accounts, prepend_issuer=False):
     accounts_html = '''
         <!doctype html>
@@ -559,6 +585,7 @@ if __name__ == '__main__':
     parser.add_argument('--no-authy', action='store_true', help='no Authy codes')
     parser.add_argument('--no-duo', action='store_true', help='no Duo codes')
     parser.add_argument('--no-freeotp', action='store_true', help='no FreeOTP codes')
+    parser.add_argument('--no-aegis', action='store_true', help='no Aegis codes')
     parser.add_argument('--no-google-authenticator', action='store_true', help='no Google Authenticator codes')
     parser.add_argument('--no-microsoft-authenticator', action='store_true', help='no Microsoft Authenticator codes')
     parser.add_argument('--no-steam-authenticator', action='store_true', help='no Steam Authenticator codes')
@@ -626,6 +653,7 @@ if __name__ == '__main__':
         ('Authy',                   args.no_authy,                   read_authy_accounts),
         ('Duo',                     args.no_duo,                     read_duo_accounts),
         ('FreeOTP',                 args.no_freeotp,                 read_freeotp_accounts),
+        ('Aegis',                   args.no_aegis,                   read_aegis_accounts),
         ('Google Authenticator',    args.no_google_authenticator,    read_google_authenticator_accounts),
         ('Microsoft Authenticator', args.no_microsoft_authenticator, read_microsoft_authenticator_accounts),
         ('Steam Authenticator',     args.no_steam_authenticator,     read_steam_authenticator_accounts),

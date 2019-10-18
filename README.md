@@ -11,6 +11,7 @@ Many OTP apps don't support exporting their OTP secrets. Switching apps would re
  - FreeOTP
  - Steam Authenticator
  - AndOTP (when encrypted backups are enabled)
+ - Aegis
 
 ## Installation
 
@@ -24,10 +25,12 @@ Many OTP apps don't support exporting their OTP secrets. Switching apps would re
 Requires Python 3.6+ and a **rooted** Android phone. Parsing encrypted AndOTP backups (recommended) requires [PyCryptodome](https://pycryptodome.readthedocs.io/en/latest/src/installation.html).
 
     usage: extract_otp_tokens.py [-h] [--no-andotp] [--no-authy] [--no-duo]
-                                 [--no-freeotp] [--no-google-authenticator]
+                                 [--no-freeotp] [--no-aegis]
+                                 [--no-google-authenticator]
                                  [--no-microsoft-authenticator]
                                  [--no-steam-authenticator] [--data DATA]
-                                 [--no-show-uri] [--show-qr] [--prepend-issuer]
+                                 [--busybox-path BUSYBOX_PATH] [--no-show-uri]
+                                 [--show-qr] [--prepend-issuer]
                                  [--andotp-backup ANDOTP_BACKUP] [-v]
 
     Extracts TOTP secrets from a rooted Android phone.
@@ -39,6 +42,7 @@ Requires Python 3.6+ and a **rooted** Android phone. Parsing encrypted AndOTP ba
       --no-authy            no Authy codes (default: False)
       --no-duo              no Duo codes (default: False)
       --no-freeotp          no FreeOTP codes (default: False)
+      --no-aegis            no Aegis codes (default: False)
       --no-google-authenticator
                             no Google Authenticator codes (default: False)
       --no-microsoft-authenticator
@@ -47,6 +51,9 @@ Requires Python 3.6+ and a **rooted** Android phone. Parsing encrypted AndOTP ba
                             no Steam Authenticator codes (default: False)
       --data DATA           path to the app data folder (default:
                             $ANDROID_DATA/data)
+      --busybox-path BUSYBOX_PATH
+                            path to {Busy,Toy}box supporting base64 and ls
+                            (default: None)
       --no-show-uri         disable printing the accounts as otpauth:// URIs
                             (default: False)
       --show-qr             displays the accounts as a local webpage with
