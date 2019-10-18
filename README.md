@@ -8,9 +8,9 @@ Many OTP apps don't support exporting their OTP secrets. Switching apps would re
  - Microsoft Authenticator
  - Authy
  - Duo Mobile
- - FreeOTP
+ - FreeOTP and FreeOTP+
  - Steam Authenticator
- - AndOTP (when encrypted backups are enabled)
+ - AndOTP (when backups are enabled)
  - Aegis
 
 ## Installation
@@ -25,7 +25,7 @@ Many OTP apps don't support exporting their OTP secrets. Switching apps would re
 Requires Python 3.6+ and a **rooted** Android phone. Parsing encrypted AndOTP backups (recommended) requires [PyCryptodome](https://pycryptodome.readthedocs.io/en/latest/src/installation.html).
 
     usage: extract_otp_tokens.py [-h] [--no-andotp] [--no-authy] [--no-duo]
-                                 [--no-freeotp] [--no-aegis]
+                                 [--no-freeotp] [--no-freeotp-plus] [--no-aegis]
                                  [--no-google-authenticator]
                                  [--no-microsoft-authenticator]
                                  [--no-steam-authenticator] [--data DATA]
@@ -42,6 +42,7 @@ Requires Python 3.6+ and a **rooted** Android phone. Parsing encrypted AndOTP ba
       --no-authy            no Authy codes (default: False)
       --no-duo              no Duo codes (default: False)
       --no-freeotp          no FreeOTP codes (default: False)
+      --no-freeotp-plus     no FreeOTP+ codes (default: False)
       --no-aegis            no Aegis codes (default: False)
       --no-google-authenticator
                             no Google Authenticator codes (default: False)
@@ -64,4 +65,4 @@ Requires Python 3.6+ and a **rooted** Android phone. Parsing encrypted AndOTP ba
                             None)
       -v, --verbose         increases verbosity (default: 0)
 
-If your phone doesn't store app data in `$ANDROID_DATA/data/`, specify the correct path with the `--data` argument. The default action is to print the codes to STDOUT. If you want to display them locally in your webbrowser as QR codes or export them as an AndOTP backup file, see the above usage information.
+If your phone doesn't store app data in `$ANDROID_DATA/data/`, specify the correct path with the `--data` argument. The default action is to print the codes to STDOUT. If you want to display them locally in your webbrowser as QR codes or export them as an AndOTP backup file, use `--show-qr` and `--andotp-backup filename.json`, respectively.

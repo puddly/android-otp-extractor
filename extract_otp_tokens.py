@@ -18,6 +18,7 @@ import subprocess
 from io import BytesIO
 from pathlib import PurePosixPath, Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
+from functools import partial
 from xml.etree import ElementTree
 from urllib.parse import quote, urlencode
 from urllib.request import pathname2url
@@ -271,9 +272,9 @@ def read_authy_accounts(adb, data_root):
             yield TOTPAccount(account['name'], secret=secret, digits=account['digits'], period=period)
 
 
-def read_freeotp_accounts(adb, data_root):
+def read_freeotp_accounts(adb, data_root, *, package_name):
     try:
-        f = adb.read_file(data_root/'org.fedorahosted.freeotp/shared_prefs/tokens.xml')
+        f = adb.read_file(data_root/package_name/'shared_prefs/tokens.xml')
     except FileNotFoundError:
         return
 
@@ -585,6 +586,7 @@ if __name__ == '__main__':
     parser.add_argument('--no-authy', action='store_true', help='no Authy codes')
     parser.add_argument('--no-duo', action='store_true', help='no Duo codes')
     parser.add_argument('--no-freeotp', action='store_true', help='no FreeOTP codes')
+    parser.add_argument('--no-freeotp-plus', action='store_true', help='no FreeOTP+ codes')
     parser.add_argument('--no-aegis', action='store_true', help='no Aegis codes')
     parser.add_argument('--no-google-authenticator', action='store_true', help='no Google Authenticator codes')
     parser.add_argument('--no-microsoft-authenticator', action='store_true', help='no Microsoft Authenticator codes')
@@ -652,7 +654,8 @@ if __name__ == '__main__':
         ('AndOTP',                  args.no_andotp,                  read_andotp_accounts),
         ('Authy',                   args.no_authy,                   read_authy_accounts),
         ('Duo',                     args.no_duo,                     read_duo_accounts),
-        ('FreeOTP',                 args.no_freeotp,                 read_freeotp_accounts),
+        ('FreeOTP',                 args.no_freeotp,                 partial(read_freeotp_accounts, package_name='org.fedorahosted.freeotp')),
+        ('FreeOTP+',                args.no_freeotp_plus,            partial(read_freeotp_accounts, package_name='org.liberty.android.freeotpplus')),
         ('Aegis',                   args.no_aegis,                   read_aegis_accounts),
         ('Google Authenticator',    args.no_google_authenticator,    read_google_authenticator_accounts),
         ('Microsoft Authenticator', args.no_microsoft_authenticator, read_microsoft_authenticator_accounts),
