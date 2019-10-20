@@ -17,6 +17,7 @@ Many OTP apps don't support exporting their OTP secrets. Switching apps would re
 
  - Make sure Python3 is installed
    - on Mac, you can do so with `brew install python3` (provided [HomeBrew](https://brew.sh/) is already installed)
+ - Install pycryptodomex with `pip install pycryptodomex`
  - Clone the repo or just download [the main script](https://raw.githubusercontent.com/puddly/android-otp-extractor/master/extract_otp_tokens.py)
  - Make it executable with `chmod +x extract_otp_tokens.py`
 
