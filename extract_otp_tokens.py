@@ -371,7 +371,7 @@ def read_andotp_accounts(adb, data_root):
 
     if 'encrypted' in allowed_backup_broadcasts:
         try:
-            from Crypto.Cipher import AES
+            from Cryptodome.Cipher import AES
         except:
             logger.error('Reading encrypted AndOTP backups requires PyCryptodome')
             return
