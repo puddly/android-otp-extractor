@@ -18,7 +18,7 @@ def open_remote_sqlite_database(adb, database):
         temp_dir = Path(temp_dir)
 
         for suffix in ['', '-journal', '-wal', '-shm']:
-            remote_file = database.with_suffix(suffix)
+            remote_file = database.with_name(database.name + suffix)
 
             try:
                 contents = adb.read_file(remote_file)
