@@ -120,10 +120,13 @@ def guess_adb_interface(data_root):
             if test.hash_file('$ANDROID_ROOT/build.prop') != test.hash_file('$ANDROID_ROOT/build.prop'):
                 raise RuntimeError('File hashing is not consistent')
         except (IOError, RuntimeError) as e:
-            logger.warning('%r is not a functional ADB interface: %s', binary, e)
+            logger.warning('%r does not provide functional command line utilities: %s', binary, e)
             continue
 
-        logger.info('Using ADB binary: %r', binary)
+        logger.info('Using command line utility binary: %r', binary)
         return test
 
-    raise RuntimeError('No supported ADB interface could be found! Install Busybox (e.g. https://f-droid.org/en/packages/ru.meefik.busybox/)')
+    logger.error('Make sure your phone is rooted and you have basic command line utilities installed '
+                 + '(e.g. https://f-droid.org/en/packages/ru.meefik.busybox/)')
+
+    raise RuntimeError('No supported ADB interface could be found')
