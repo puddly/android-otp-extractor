@@ -52,18 +52,6 @@ def main():
     else:
         adb = guess_adb_interface(args.data)
 
-    logger.info('Checking for root by listing the contents of %s. You might have to grant ADB temporary root access.', args.data)
-
-    if not adb.list_dir(args.data):
-        logger.error('Root not found or data directory is incorrect!')
-        sys.exit(1)
-
-    logger.info('Checking if files can be properly read by reading $ANDROID_ROOT/build.prop')
-
-    if not adb.read_file('$ANDROID_ROOT/build.prop'):
-        logger.error('Root not found or unable to dump file contents!')
-        sys.exit(1)
-
     if args.include:
         enabled_apps = [a for a in apps.SUPPORTED_APPS if a.simple_name in args.include]
     elif args.exclude:

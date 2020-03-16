@@ -104,23 +104,26 @@ class SingleBinaryADBInterface(ADBInterface):
 
 
 def guess_adb_interface(data_root):
-    for binary in ['toybox', 'busybox']:
-        logger.debug('Testing if your phone uses %s...', binary)
+    for binary in ['toybox', 'busybox', '']:
+        logger.info('Testing if your phone uses binary: %r', binary)
 
         test = SingleBinaryADBInterface(data_root, binary)
 
         try:
-            files = test.list_dir('/')
+            logger.info('Listing contents of / as root')
 
-            logger.debug('Contents of / are: %s', files)
+            if not test.list_dir('/'):
+                raise IOError('Directory listing of / is empty')
 
-            if not files:
-                raise IOError('Root is empty. This should not happen!')
+            logger.info('Reading and hashing contents of build.prop as root')
+
+            if test.hash_file('$ANDROID_ROOT/build.prop') != test.hash_file('$ANDROID_ROOT/build.prop'):
+                raise RuntimeError('File hashing is not consistent')
         except (IOError, RuntimeError) as e:
-            logger.warning('Could not list /: %s', e)
+            logger.warning('%r is not a functional ADB interface: %s', binary, e)
             continue
 
-        logger.debug('Using ADB binary: %s', binary)
+        logger.info('Using ADB binary: %r', binary)
         return test
 
-    raise RuntimeError('No supported ADB interface could be found!')
+    raise RuntimeError('No supported ADB interface could be found! Install Busybox (e.g. https://f-droid.org/en/packages/ru.meefik.busybox/)')
