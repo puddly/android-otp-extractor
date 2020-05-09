@@ -117,15 +117,15 @@ def read_google_authenticator_accounts(adb):
     try:
         with open_remote_sqlite_database(adb, adb.data_root/'com.google.android.apps.authenticator2/databases/databases') as connection:
             cursor = connection.cursor()
-            cursor.execute('SELECT email, original_name, secret, counter, type, issuer FROM accounts;')
+            cursor.execute('SELECT * FROM accounts;')
 
-            for email, name, secret, counter, type, issuer in cursor.fetchall():
-                name = name if name is not None else email
+            for row in cursor.fetchall():
+                name = row['name'] if row['name'] is not None else row['email']
 
-                if type == 0:
-                    yield TOTPAccount(name, secret, issuer=issuer)
-                elif type == 1:
-                    yield HOTPAccount(name, secret, issuer=issuer, counter=counter)
+                if row['type'] == 0:
+                    yield TOTPAccount(name, row['secret'], issuer=row['issuer'])
+                elif row['type'] == 1:
+                    yield HOTPAccount(name, row['secret'], issuer=row['issuer'], counter=row['counter'])
                 else:
                     LOGGER.warning('Unknown Google Authenticator account type: %s', row['type'])
     except FileNotFoundError:
@@ -137,10 +137,10 @@ def read_microsoft_authenticator_accounts(adb):
     try:
         with open_remote_sqlite_database(adb, adb.data_root/'com.azure.authenticator/databases/PhoneFactor') as connection:
             cursor = connection.cursor()
-            cursor.execute('SELECT name, oath_secret_key FROM accounts;')
+            cursor.execute('SELECT * FROM accounts;')
 
-            for name, secret in cursor.fetchall():
-                yield TOTPAccount(name, secret)
+            for row in cursor.fetchall():
+                yield TOTPAccount(row['name'], row['oath_secret_key'])
     except FileNotFoundError:
         return
 

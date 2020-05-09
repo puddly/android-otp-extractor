@@ -32,6 +32,8 @@ def open_remote_sqlite_database(adb, database):
         db_path = str(temp_dir / database.name)
 
         with contextlib.closing(sqlite3.connect(db_path)) as connection:
+            connection.row_factory = sqlite3.Row
+
             yield connection
 
 
