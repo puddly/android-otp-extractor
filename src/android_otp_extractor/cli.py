@@ -13,7 +13,7 @@ from .contrib import display_qr_codes
 
 import coloredlogs
 
-logger = logging.getLogger(__name__)
+LOGGER = logging.getLogger(__name__)
 
 
 SUPPORTED_APP_NAMES = [a.simple_name for a in apps.SUPPORTED_APPS]
@@ -44,7 +44,7 @@ def main():
     args = parser.parse_args()
 
     log_level = [logging.INFO, logging.DEBUG, TRACE][min(max(0, args.verbose), 2)]
-    logger.parent.setLevel(log_level)
+    LOGGER.parent.setLevel(log_level)
     coloredlogs.install(level=log_level)
 
     if args.busybox_path is not None:
@@ -62,7 +62,7 @@ def main():
     accounts = apps.read_accounts(adb, enabled_apps)
 
     for account in accounts:
-        logger.info('Found account: %s', account.as_uri(args.prepend_issuer))
+        LOGGER.info('Found account: %s', account.as_uri(args.prepend_issuer))
 
     if not args.no_show_qr:
         display_qr_codes(accounts, args.prepend_issuer)

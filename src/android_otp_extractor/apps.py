@@ -18,7 +18,7 @@ from .contrib import open_remote_sqlite_database
 from .otp import TOTPAccount, HOTPAccount, SteamAccount
 
 
-logger = logging.getLogger(__name__)
+LOGGER = logging.getLogger(__name__)
 
 
 SupportedApp = namedtuple('SupportedApp', ['name', 'simple_name', 'extractor'])
@@ -83,7 +83,7 @@ def _read_freeotp_accounts(adb, *, package_name):
         elif account['type'] == 'HOTP':
             yield HOTPAccount(name, secret, issuer=issuer, digits=account['digits'], counter=account['counter'], algorithm=account['algo'])
         else:
-            logger.warning('Unknown FreeOTP account type: %s', account['type'])
+            LOGGER.warning('Unknown FreeOTP account type: %s', account['type'])
 
 
 @supported_app('FreeOTP')
@@ -127,7 +127,7 @@ def read_google_authenticator_accounts(adb):
                 elif type == 1:
                     yield HOTPAccount(name, secret, issuer=issuer, counter=counter)
                 else:
-                    logger.warning('Unknown Google Authenticator account type: %s', type)
+                    LOGGER.warning('Unknown Google Authenticator account type: %s', row['type'])
     except FileNotFoundError:
         return
 
@@ -170,15 +170,15 @@ def read_andotp_accounts(adb):
     except FileNotFoundError:
         initial_backup_files = {}
 
-    logger.info('Sending AndOTP a broadcast to create a backup. This may take a few seconds...')
+    LOGGER.info('Sending AndOTP a broadcast to create a backup. This may take a few seconds...')
 
     if 'encrypted' in allowed_backup_broadcasts:
         adb.run('am broadcast -a org.shadowice.flocke.andotp.broadcast.ENCRYPTED_BACKUP org.shadowice.flocke.andotp', prefix=b'am: ')
     elif 'plain' in allowed_backup_broadcasts:
-        logger.error('Plaintext AndOTP backups are not supported. Please enable encrypted backups instead.')
+        LOGGER.error('Plaintext AndOTP backups are not supported. Please enable encrypted backups instead.')
         return
     else:
-        logger.error('No AndOTP backup broadcasts are setup. Enable encrypted backups in the app settings, under "Backup Broadcasts".')
+        LOGGER.error('No AndOTP backup broadcasts are setup. Enable encrypted backups in the app settings, under "Backup Broadcasts".')
         return
 
     backup_data = None
@@ -187,7 +187,7 @@ def read_andotp_accounts(adb):
     # Find all newly-created backup files
     for i in range(10):
         try:
-            logger.info('Waiting for AndOTP to generate the backup file (attempt %d)', i + 1)
+            LOGGER.info('Waiting for AndOTP to generate the backup file (attempt %d)', i + 1)
             time.sleep(1)
 
             new_backups = [f for f in adb.list_dir(backup_path) if initial_backup_files.get(f) != adb.hash_file(f)]
@@ -195,7 +195,7 @@ def read_andotp_accounts(adb):
             if not new_backups:
                 continue
 
-            logger.debug('Found AndOTP backup files: %s', new_backups)
+            LOGGER.debug('Found AndOTP backup files: %s', new_backups)
 
             backup_file = new_backups[0]
             backup_data = adb.read_file(backup_file)
@@ -203,14 +203,14 @@ def read_andotp_accounts(adb):
         except FileNotFoundError:
             continue
     else:
-        logger.error('Could not find the AndOTP backup file. Do you have a backup password set?')
+        LOGGER.error('Could not find the AndOTP backup file. Do you have a backup password set?')
         return
 
     while True:
         backup_password = getpass.getpass('Enter the AndOTP backup password: ')
 
         if not backup_password:
-            logger.warning('Aborting AndOTP export because user did not enter a password!')
+            LOGGER.warning('Aborting AndOTP export because user did not enter a password!')
             return
 
         success = False
@@ -243,14 +243,14 @@ def read_andotp_accounts(adb):
             except cryptography.exceptions.InvalidTag:
                 if new_format:
                     # At this point we've tried both formats so the password is wrong
-                    logger.error('Could not decrypt the AndOTP backup. Is your password correct?')
+                    LOGGER.error('Could not decrypt the AndOTP backup. Is your password correct?')
 
                 continue
 
         if success:
             break
 
-    logger.info('Deleting generated backup file: %s', backup_file)
+    LOGGER.info('Deleting generated backup file: %s', backup_file)
     adb.run(f'rm {shlex.quote(str(backup_file))}', prefix=b'rm: ', root=True)
 
     for account in json.loads(accounts_json):
@@ -261,7 +261,7 @@ def read_andotp_accounts(adb):
         elif account['type'] == 'STEAM':
             yield SteamAccount(account['label'], account['secret'])
         else:
-            logger.warning('Unknown AndOTP account type: %s', account['type'])
+            LOGGER.warning('Unknown AndOTP account type: %s', account['type'])
 
 
 @supported_app('Steam Authenticator')
@@ -290,7 +290,7 @@ def read_aegis_accounts(adb):
     db = aegis['db']
 
     if db['version'] != 1:
-        logger.error('Invalid Aegis DB version: %d. Only 1 is supported.', db['version'])
+        LOGGER.error('Invalid Aegis DB version: %d. Only 1 is supported.', db['version'])
         return
 
     for entry in db['entries']:
@@ -303,7 +303,7 @@ def read_aegis_accounts(adb):
         elif entry['type'] == 'steam':
             yield SteamAccount(entry['name'], issuer=entry['issuer'], secret=info['secret'])
         else:
-            logger.warning('Unknown Aegis account type: %s', entry['type'])
+            LOGGER.warning('Unknown Aegis account type: %s', entry['type'])
 
 
 def read_accounts(adb, apps):
@@ -314,12 +314,12 @@ def read_accounts(adb, apps):
     accounts = set()
 
     for app in apps:
-        logger.info('Reading %s accounts', app.name)
+        LOGGER.info('Reading %s accounts', app.name)
         new = list(app.extractor(adb))
         old_count = len(accounts)
 
         for account in new:
-            logger.debug('Found an account %s', account)
+            LOGGER.debug('Found an account %s', account)
 
             # Only HOTP accounts need special treatment
             if not isinstance(account, HOTPAccount):
@@ -332,13 +332,13 @@ def read_accounts(adb, apps):
                 accounts.add(account)
                 continue
 
-            logger.warning('Identical HOTP accounts exist with different counters: %s != %s', account, duplicate)
-            logger.warning('Picking the one with the largest counter.')
+            LOGGER.warning('Identical HOTP accounts exist with different counters: %s != %s', account, duplicate)
+            LOGGER.warning('Picking the one with the largest counter.')
 
             if duplicate.counter < account.counter:
                 accounts.remove(duplicate)
                 account.add(account)
 
-        logger.info('Found %d accounts (%d new)', len(new), len(accounts) - old_count)
+        LOGGER.info('Found %d accounts (%d new)', len(new), len(accounts) - old_count)
 
     return accounts

@@ -8,7 +8,7 @@ from io import BytesIO
 from pathlib import PurePosixPath
 
 
-logger = logging.getLogger(__name__)
+LOGGER = logging.getLogger(__name__)
 
 
 class ADBInterface:
@@ -32,10 +32,10 @@ class ADBInterface:
             args=['adb', 'shell', command],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL
         )
-        logger.trace('Running %s', process.args)
+        LOGGER.trace('Running %s', process.args)
 
         for line in process.stdout:
-            logger.trace('Read: %s', line)
+            LOGGER.trace('Read: %s', line)
 
             if line.startswith(self.END_TAG):
                 return lines
@@ -73,7 +73,7 @@ class SingleBinaryADBInterface(ADBInterface):
 
     def list_dir(self, path):
         path = PurePosixPath(path)
-        logger.debug('Listing directory %s', path)
+        LOGGER.debug('Listing directory %s', path)
 
         lines = self.run(f'{self.binary} ls -1 {shlex.quote(str(path))}', prefix=b'ls: ', root=True)
 
@@ -83,16 +83,16 @@ class SingleBinaryADBInterface(ADBInterface):
     def read_file(self, path):
         path = PurePosixPath(path)
 
-        logger.debug('Trying to read file %s', path)
+        LOGGER.debug('Trying to read file %s', path)
         lines = self.run(f'{self.binary} base64 {shlex.quote(str(path))}', prefix=b'base64: ', root=True)
         contents = base64.b64decode(b''.join(lines))
-        logger.debug('Successfully read %d bytes', len(contents))
+        LOGGER.debug('Successfully read %d bytes', len(contents))
 
         return BytesIO(contents)
 
     def hash_file(self, path):
         path = PurePosixPath(path)
-        logger.debug('Hashing file %s', path)
+        LOGGER.debug('Hashing file %s', path)
 
         # Assume `ls -l` only changes when the file changes
         lines = self.run(f'{self.binary} ls -l {shlex.quote(str(path))}', prefix=b'ls: ', root=True)
@@ -105,28 +105,28 @@ class SingleBinaryADBInterface(ADBInterface):
 
 def guess_adb_interface(data_root):
     for binary in ['toybox', 'busybox', '']:
-        logger.info('Testing if your phone uses binary: %r', binary)
+        LOGGER.info('Testing if your phone uses binary: %r', binary)
 
         test = SingleBinaryADBInterface(data_root, binary)
 
         try:
-            logger.info('Listing contents of / as root')
+            LOGGER.info('Listing contents of / as root')
 
             if not test.list_dir('/'):
                 raise IOError('Directory listing of / is empty')
 
-            logger.info('Reading and hashing contents of build.prop as root')
+            LOGGER.info('Reading and hashing contents of build.prop as root')
 
             if test.hash_file('$ANDROID_ROOT/build.prop') != test.hash_file('$ANDROID_ROOT/build.prop'):
                 raise RuntimeError('File hashing is not consistent')
         except (IOError, RuntimeError) as e:
-            logger.warning('%r does not provide functional command line utilities: %s', binary, e)
+            LOGGER.warning('%r does not provide functional command line utilities: %s', binary, e)
             continue
 
-        logger.info('Using command line utility binary: %r', binary)
+        LOGGER.info('Using command line utility binary: %r', binary)
         return test
 
-    logger.error('Make sure your phone is rooted and you have basic command line utilities installed '
+    LOGGER.error('Make sure your phone is rooted and you have basic command line utilities installed '
                  + '(e.g. https://f-droid.org/en/packages/ru.meefik.busybox/)')
 
     raise RuntimeError('No supported ADB interface could be found')

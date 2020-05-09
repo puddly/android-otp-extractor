@@ -11,4 +11,4 @@ class TraceLogger(logging.getLoggerClass()):
 
 logging.setLoggerClass(TraceLogger)
 
-logger = logging.getLogger(__name__)  # so the project has a root logger
+LOGGER = logging.getLogger(__name__)  # so the project has a root logger
