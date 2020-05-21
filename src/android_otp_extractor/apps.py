@@ -15,7 +15,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 
 from .contrib import open_remote_sqlite_database
-from .otp import TOTPAccount, HOTPAccount, SteamAccount
+from .otp import TOTPAccount, HOTPAccount, SteamAccount, pad_to_8
 
 
 LOGGER = logging.getLogger(__name__)
@@ -58,7 +58,14 @@ def read_authy_accounts(adb):
                 period = 10
                 secret = account['secretSeed']
 
-            yield TOTPAccount(account['name'], secret=secret, digits=account['digits'], period=period)
+            # Authy strips all digits that aren't Base32
+            fixed_secret = ''.join(c for c in secret if c.upper() in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567')
+
+            if secret.upper() != fixed_secret.upper():
+                LOGGER.warning("Transformed Authy secret %s into %s", secret, fixed_secret)
+
+            # Authy stores its secrets in the same format as they're provided so we have to guess their type
+            yield TOTPAccount(account['name'], secret=base64.b32decode(pad_to_8(fixed_secret.upper())), digits=account['digits'], period=period)
 
 
 def _read_freeotp_accounts(adb, *, package_name):
@@ -74,7 +81,7 @@ def _read_freeotp_accounts(adb, *, package_name):
         if 'secret' not in account:
             continue
 
-        secret = bytes([b & 0xff for b in account['secret']]).hex()
+        secret = bytes([b & 0xFF for b in account['secret']])
         issuer = account.get('issuerAlt') or account['issuerExt'] or None
         name = account['label']
 
@@ -104,7 +111,7 @@ def read_duo_accounts(adb):
         return
 
     for account in json.load(f):
-        secret = account['otpGenerator']['otpSecret']
+        secret = base64.b32decode(account['otpGenerator']['otpSecret'])
 
         if 'counter' in account['otpGenerator']:
             yield HOTPAccount(account['name'], secret, counter=account['otpGenerator']['counter'])
@@ -121,11 +128,12 @@ def read_google_authenticator_accounts(adb):
 
             for row in cursor.fetchall():
                 name = row['name'] if row['name'] is not None else row['email']
+                secret = base64.b32decode(row['secret'])
 
                 if row['type'] == 0:
-                    yield TOTPAccount(name, row['secret'], issuer=row['issuer'])
+                    yield TOTPAccount(name, secret, issuer=row['issuer'])
                 elif row['type'] == 1:
-                    yield HOTPAccount(name, row['secret'], issuer=row['issuer'], counter=row['counter'])
+                    yield HOTPAccount(name, secret, issuer=row['issuer'], counter=row['counter'])
                 else:
                     LOGGER.warning('Unknown Google Authenticator account type: %s', row['type'])
     except FileNotFoundError:
@@ -140,7 +148,14 @@ def read_microsoft_authenticator_accounts(adb):
             cursor.execute('SELECT * FROM accounts;')
 
             for row in cursor.fetchall():
-                yield TOTPAccount(row['name'], row['oath_secret_key'])
+                secret_key = base64.b64decode(row['oath_secret_key'])
+
+                if row['account_type'] == 0:
+                    yield TOTPAccount(name=row['username'], issuer=row['name'], secret=secret_key, digits=6)
+                elif row['account_type'] == 2:
+                    yield TOTPAccount(name=row['username'], issuer=row['name'], secret=secret_key, digits=8)
+                else:
+                    LOGGER.warning('Unknown Microsoft account type: %r', row['account_type'])
     except FileNotFoundError:
         return
 
@@ -254,12 +269,14 @@ def read_andotp_accounts(adb):
     adb.run(f'rm {shlex.quote(str(backup_file))}', prefix=b'rm: ', root=True)
 
     for account in json.loads(accounts_json):
+        secret = base64.b32decode(account['secret'])
+
         if account['type'] == 'TOTP':
-            yield TOTPAccount(account['label'], account['secret'], digits=account['digits'], period=account['period'], algorithm=account['algorithm'])
+            yield TOTPAccount(account['label'], secret, digits=account['digits'], period=account['period'], algorithm=account['algorithm'])
         elif account['type'] == 'HOTP':
-            yield HOTPAccount(account['label'], account['secret'], digits=account['digits'], counter=account['counter'], algorithm=account['algorithm'])
+            yield HOTPAccount(account['label'], secret, digits=account['digits'], counter=account['counter'], algorithm=account['algorithm'])
         elif account['type'] == 'STEAM':
-            yield SteamAccount(account['label'], account['secret'])
+            yield SteamAccount(account['label'], secret)
         else:
             LOGGER.warning('Unknown AndOTP account type: %s', account['type'])
 
@@ -274,7 +291,7 @@ def read_steam_authenticator_accounts(adb):
     for account_file in account_files:
         account_json = json.load(adb.read_file(account_file))
 
-        secret = base64.b32encode(base64.b64decode(account_json['shared_secret'])).decode('ascii')
+        secret = base64.b64decode(account_json['shared_secret'])
 
         yield SteamAccount(account_json['account_name'], secret)
 
@@ -295,13 +312,14 @@ def read_aegis_accounts(adb):
 
     for entry in db['entries']:
         info = entry['info']
+        secret = base64.b32decode(pad_to_8(info['secret']))
 
         if entry['type'] == 'totp':
-            yield TOTPAccount(entry['name'], issuer=entry['issuer'], secret=info['secret'], algorithm=info['algo'], digits=info['digits'], period=info['period'])
+            yield TOTPAccount(entry['name'], issuer=entry['issuer'], secret=secret, algorithm=info['algo'], digits=info['digits'], period=info['period'])
         elif entry['type'] == 'hotp':
-            yield HOTPAccount(entry['name'], issuer=entry['issuer'], secret=info['secret'], algorithm=info['algo'], digits=info['digits'], counter=info['counter'])
+            yield HOTPAccount(entry['name'], issuer=entry['issuer'], secret=secret, algorithm=info['algo'], digits=info['digits'], counter=info['counter'])
         elif entry['type'] == 'steam':
-            yield SteamAccount(entry['name'], issuer=entry['issuer'], secret=info['secret'])
+            yield SteamAccount(entry['name'], issuer=entry['issuer'], secret=secret)
         else:
             LOGGER.warning('Unknown Aegis account type: %s', entry['type'])
 

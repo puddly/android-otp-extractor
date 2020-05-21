@@ -3,11 +3,8 @@ import base64
 from urllib.parse import quote, urlencode
 
 
-def normalize_secret(secret):
-    if set(secret.lower()) <= set('0123456789abcdef'):
-        return base64.b32encode(bytes.fromhex(secret)).decode('ascii').rstrip('=')
-    else:
-        return secret.upper().rstrip('=')
+def pad_to_8(data):
+    return data.rstrip('=') + '=' * ((8 - len(data) % 8) % 8)
 
 
 class OTPAccount:
@@ -15,8 +12,12 @@ class OTPAccount:
 
     def __init__(self, name, secret, issuer=None):
         self.name = name
-        self.secret = normalize_secret(secret)
+        self._secret = secret
         self.issuer = issuer
+
+    @property
+    def secret(self):
+        return base64.b32encode(self._secret).decode('ascii').rstrip('=')
 
     def __hash__(self):
         return hash(self.as_uri())
