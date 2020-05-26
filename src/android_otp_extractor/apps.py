@@ -53,19 +53,21 @@ def read_authy_accounts(adb):
         for account in accounts:
             if 'decryptedSecret' in account:
                 period = 30
-                secret = account['decryptedSecret']
+                dec_secret = account['decryptedSecret']
+
+                # Authy strips all digits that aren't Base32
+                fixed_secret = ''.join(c for c in dec_secret if c.upper() in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567')
+
+                if dec_secret.upper() != fixed_secret.upper():
+                    LOGGER.warning("Transformed Authy secret %s into %s", dec_secret, fixed_secret)
+
+                secret = base64.b32decode(pad_to_8(fixed_secret.upper()))
             else:
                 period = 10
-                secret = account['secretSeed']
-
-            # Authy strips all digits that aren't Base32
-            fixed_secret = ''.join(c for c in secret if c.upper() in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567')
-
-            if secret.upper() != fixed_secret.upper():
-                LOGGER.warning("Transformed Authy secret %s into %s", secret, fixed_secret)
+                secret = bytes.fromhex(account['secretSeed'])
 
             # Authy stores its secrets in the same format as they're provided so we have to guess their type
-            yield TOTPAccount(account['name'], secret=base64.b32decode(pad_to_8(fixed_secret.upper())), digits=account['digits'], period=period)
+            yield TOTPAccount(account['name'], secret=secret, digits=account['digits'], period=period)
 
 
 def _read_freeotp_accounts(adb, *, package_name):
