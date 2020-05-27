@@ -1,10 +1,25 @@
+import time
+import hmac
 import base64
+import hashlib
 
 from urllib.parse import quote, urlencode
 
 
 def pad_to_8(data):
     return data.rstrip('=') + '=' * ((8 - len(data) % 8) % 8)
+
+
+def generate_hotp_token(secret, counter, digits):
+    assert 1 <= digits <= 10
+
+    message = counter.to_bytes(8, 'big')
+    digest = hmac.new(secret, message, hashlib.sha1).digest()
+
+    offset = digest[-1] & 0b1111
+    extracted = int.from_bytes(digest[offset:offset + 4], 'big') & 0b01111111111111111111111111111111
+
+    return str(extracted % 10**digits).zfill(digits)
 
 
 class OTPAccount:
@@ -49,6 +64,9 @@ class OTPAccount:
 
         return f'otpauth://{self.type}/{quote(name)}?' + urlencode(sorted(params.items()))
 
+    def generate(self):
+        raise NotImplementedError()
+
     def __repr__(self):
         args = ', '.join(f'{k}={v!r}' for k, v in self.as_andotp().items() if k != 'type')
 
@@ -70,6 +88,9 @@ class HOTPAccount(OTPAccount):
     def counterless_eq(self, other):
         return super().__eq__(other) and self.digits == other.digits and self.algorithm == other.algorithm
 
+    def generate(self):
+        return generate_hotp_token(secret=self._secret, counter=self.counter, digits=self.digits)
+
     def uri_params(self):
         return {
             'counter': self.counter,
@@ -89,6 +110,9 @@ class TOTPAccount(OTPAccount):
 
     def as_andotp(self):
         return {**super().as_andotp(), **self.uri_params()}
+
+    def generate(self, *, offset=0):
+        return generate_hotp_token(secret=self._secret, counter=int(time.time() // self.period) + offset, digits=self.digits)
 
     def uri_params(self):
         return {
