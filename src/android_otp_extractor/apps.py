@@ -140,7 +140,8 @@ def read_google_authenticator_accounts(adb):
                 elif not issuer:
                     issuer = email
 
-                secret = lenient_base32_decode(row['secret'])
+                # Google Authenticator's Base-32 decoder is case-insensitive
+                secret = lenient_base32_decode(row['secret'].upper())
 
                 if row['type'] == 0:
                     yield TOTPAccount(name, secret, issuer=issuer)
