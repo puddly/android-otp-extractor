@@ -15,7 +15,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 
 from .contrib import open_remote_sqlite_database
-from .otp import TOTPAccount, HOTPAccount, SteamAccount, pad_to_8
+from .otp import TOTPAccount, HOTPAccount, SteamAccount, lenient_base32_decode
 
 
 LOGGER = logging.getLogger(__name__)
@@ -61,7 +61,7 @@ def read_authy_accounts(adb):
                 if dec_secret.upper() != fixed_secret.upper():
                     LOGGER.warning("Transformed Authy secret %s into %s", dec_secret, fixed_secret)
 
-                secret = base64.b32decode(pad_to_8(fixed_secret.upper()))
+                secret = lenient_base32_decode(fixed_secret.upper())
             else:
                 period = 10
                 secret = bytes.fromhex(account['secretSeed'])
@@ -129,13 +129,23 @@ def read_google_authenticator_accounts(adb):
             cursor.execute('SELECT * FROM accounts;')
 
             for row in cursor.fetchall():
-                name = row['name'] if row['name'] is not None else row['email']
-                secret = base64.b32decode(row['secret'])
+                row = dict(row)
+
+                name = row.get('name') or row.get('original_name')
+                email = row.get('email')
+                issuer = row.get('issuer')
+
+                if not name:
+                    name = email
+                elif not issuer:
+                    issuer = email
+
+                secret = lenient_base32_decode(row['secret'])
 
                 if row['type'] == 0:
-                    yield TOTPAccount(name, secret, issuer=row['issuer'])
+                    yield TOTPAccount(name, secret, issuer=issuer)
                 elif row['type'] == 1:
-                    yield HOTPAccount(name, secret, issuer=row['issuer'], counter=row['counter'])
+                    yield HOTPAccount(name, secret, issuer=issuer, counter=row['counter'])
                 else:
                     LOGGER.warning('Unknown Google Authenticator account type: %s', row['type'])
     except FileNotFoundError:
@@ -314,7 +324,7 @@ def read_aegis_accounts(adb):
 
     for entry in db['entries']:
         info = entry['info']
-        secret = base64.b32decode(pad_to_8(info['secret']))
+        secret = lenient_base32_decode(info['secret'])
 
         if entry['type'] == 'totp':
             yield TOTPAccount(entry['name'], issuer=entry['issuer'], secret=secret, algorithm=info['algo'], digits=info['digits'], period=info['period'])

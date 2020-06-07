@@ -6,8 +6,11 @@ import hashlib
 from urllib.parse import quote, urlencode
 
 
-def pad_to_8(data):
-    return data.rstrip('=') + '=' * ((8 - len(data) % 8) % 8)
+def lenient_base32_decode(data):
+    # Pad it to a multiple of 8
+    data = data.rstrip('=') + '=' * ((8 - len(data) % 8) % 8)
+
+    return base64.b32decode(data)
 
 
 def generate_hotp_token(secret, counter, digits):
