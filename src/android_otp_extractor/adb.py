@@ -16,11 +16,23 @@ class ADBInterface:
 
     def __init__(self, data_root):
         self.data_root = data_root
+        self.require_su = True
+
+    def set_require_su(self, require_su):
+        self.require_su = require_su
+
+    def enable_root(self):
+        process = subprocess.Popen(
+            args=['adb', 'root'],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL
+        )
+        LOGGER.trace('Running %s', process.args)
+        process.wait()
 
     def run(self, command, *, prefix, root=False):
         command = f'{command}; echo ' + self.END_TAG.decode('ascii')
 
-        if root:
+        if root and self.require_su:
             command = f'su -c "{command}"'
 
         # `adb exec-out` doesn't work properly on some devices. We have to fall back to `adb shell`,
@@ -71,11 +83,25 @@ class SingleBinaryADBInterface(ADBInterface):
         super().__init__(data_root)
         self.binary = binary
 
+    def q(self, s):
+        ret = shlex.quote(s)
+        if ret[:1] == "'":
+            return '"' + ret[1:][:-1] + '"'
+        return ret
+
+    def adb_uid(self):
+        lines = self.run(f'{self.binary} id -u', prefix=b'id: ', root=False)
+        return ''.join([l.rstrip(b'\r\n').decode('utf-8') for l in lines])
+
+    def adb_gid(self):
+        lines = self.run(f'{self.binary} id -g', prefix=b'id: ', root=False)
+        return ''.join([l.rstrip(b'\r\n').decode('utf-8') for l in lines])
+
     def list_dir(self, path):
         path = PurePosixPath(path)
         LOGGER.debug('Listing directory %s', path)
 
-        lines = self.run(f'{self.binary} ls -1 {shlex.quote(str(path))}', prefix=b'ls: ', root=True)
+        lines = self.run(f'{self.binary} ls -1 {self.q(str(path))}', prefix=b'ls: ', root=True)
 
         # There apparently exist phones that don't use just newlines (see pull #24)
         return [path/l.rstrip(b'\r\n').decode('utf-8') for l in lines]
@@ -84,7 +110,7 @@ class SingleBinaryADBInterface(ADBInterface):
         path = PurePosixPath(path)
 
         LOGGER.debug('Trying to read file %s', path)
-        lines = self.run(f'{self.binary} base64 {shlex.quote(str(path))}', prefix=b'base64: ', root=True)
+        lines = self.run(f'{self.binary} base64 {self.q(str(path))}', prefix=b'base64: ', root=True)
         contents = base64.b64decode(b''.join(lines))
         LOGGER.debug('Successfully read %d bytes', len(contents))
 
@@ -95,7 +121,7 @@ class SingleBinaryADBInterface(ADBInterface):
         LOGGER.debug('Hashing file %s', path)
 
         # Assume `ls -l` only changes when the file changes
-        lines = self.run(f'{self.binary} ls -l {shlex.quote(str(path))}', prefix=b'ls: ', root=True)
+        lines = self.run(f'{self.binary} ls -l {self.q(str(path))}', prefix=b'ls: ', root=True)
 
         # Hash both the metadata and the file's contents
         key = repr((lines, self.read_file(path).read())).encode('ascii')
@@ -110,6 +136,15 @@ def guess_adb_interface(data_root):
         test = SingleBinaryADBInterface(data_root, binary)
 
         try:
+            LOGGER.info('Checking if adb already runs as root')
+            if '0' == test.adb_uid() and '0' == test.adb_gid():
+                test.set_require_su(False)
+            else:
+                LOGGER.info('Attempting to enable adb root')
+                test.enable_root()
+                if '0' == test.adb_uid() and '0' == test.adb_gid():
+                    test.set_require_su(False)
+
             LOGGER.info('Listing contents of / as root')
 
             if not test.list_dir('/'):
