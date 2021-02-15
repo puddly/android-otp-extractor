@@ -16,12 +16,26 @@ class ADBInterface:
 
     def __init__(self, data_root):
         self.data_root = data_root
+        self.require_su = True
+
+    def set_require_su(self, require_su):
+        self.require_su = require_su
+
+    def enable_root(self):
+        process = subprocess.Popen(
+            args=['adb', 'root'],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL
+        )
+        LOGGER.trace('Running %s', process.args)
+        process.wait()
 
     def run(self, command, *, prefix, root=False):
         command = f'{command}; echo ' + self.END_TAG.decode('ascii')
 
-        if root:
+        if root and self.require_su:
             command = f'su -c "{command}"'
+        else:
+            command = f'sh -c "{command}"'
 
         # `adb exec-out` doesn't work properly on some devices. We have to fall back to `adb shell`,
         # which takes at least 600ms to exit with `su` even if the actual command runs quickly.
@@ -71,6 +85,14 @@ class SingleBinaryADBInterface(ADBInterface):
         super().__init__(data_root)
         self.binary = binary
 
+    def adb_uid(self):
+        lines = self.run(f'{self.binary} id -u', prefix=b'id: ', root=False)
+        return ''.join([l.rstrip(b'\r\n').decode('utf-8') for l in lines])
+
+    def adb_gid(self):
+        lines = self.run(f'{self.binary} id -g', prefix=b'id: ', root=False)
+        return ''.join([l.rstrip(b'\r\n').decode('utf-8') for l in lines])
+
     def list_dir(self, path):
         path = PurePosixPath(path)
         LOGGER.debug('Listing directory %s', path)
@@ -110,6 +132,15 @@ def guess_adb_interface(data_root):
         test = SingleBinaryADBInterface(data_root, binary)
 
         try:
+            LOGGER.info('Checking if adb already runs as root')
+            if '0' == test.adb_uid() and '0' == test.adb_gid():
+                test.set_require_su(False)
+            else:
+                LOGGER.info('Attempting to enable adb root')
+                test.enable_root()
+                if '0' == test.adb_uid() and '0' == test.adb_gid():
+                    test.set_require_su(False)
+
             LOGGER.info('Listing contents of / as root')
 
             if not test.list_dir('/'):
