@@ -319,6 +319,10 @@ def read_aegis_accounts(adb):
     aegis = json.load(f)
     db = aegis['db']
 
+    if isinstance(db, str):
+        LOGGER.error('Aegis DB is encrypted. Decryption is currently not supported.')
+        return
+
     if db['version'] != 1:
         LOGGER.error('Invalid Aegis DB version: %d. Only 1 is supported.', db['version'])
         return
