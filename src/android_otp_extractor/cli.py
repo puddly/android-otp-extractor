@@ -64,7 +64,7 @@ def main():
     for account in accounts:
         LOGGER.info('Found account: %s', account.as_uri(args.prepend_issuer))
 
-    if not args.no_show_qr:
+    if not args.no_show_qr and accounts:
         display_qr_codes(accounts, args.prepend_issuer)
 
     if args.andotp_backup:
