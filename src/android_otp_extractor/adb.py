@@ -34,6 +34,8 @@ class ADBInterface:
 
         if root and self.require_su:
             command = f'su -c "{command}"'
+        else:
+            command = f'sh -c "{command}"'
 
         # `adb exec-out` doesn't work properly on some devices. We have to fall back to `adb shell`,
         # which takes at least 600ms to exit with `su` even if the actual command runs quickly.
@@ -83,12 +85,6 @@ class SingleBinaryADBInterface(ADBInterface):
         super().__init__(data_root)
         self.binary = binary
 
-    def q(self, s):
-        ret = shlex.quote(s)
-        if ret[:1] == "'":
-            return '"' + ret[1:][:-1] + '"'
-        return ret
-
     def adb_uid(self):
         lines = self.run(f'{self.binary} id -u', prefix=b'id: ', root=False)
         return ''.join([l.rstrip(b'\r\n').decode('utf-8') for l in lines])
@@ -101,7 +97,7 @@ class SingleBinaryADBInterface(ADBInterface):
         path = PurePosixPath(path)
         LOGGER.debug('Listing directory %s', path)
 
-        lines = self.run(f'{self.binary} ls -1 {self.q(str(path))}', prefix=b'ls: ', root=True)
+        lines = self.run(f'{self.binary} ls -1 {shlex.quote(str(path))}', prefix=b'ls: ', root=True)
 
         # There apparently exist phones that don't use just newlines (see pull #24)
         return [path/l.rstrip(b'\r\n').decode('utf-8') for l in lines]
@@ -110,7 +106,7 @@ class SingleBinaryADBInterface(ADBInterface):
         path = PurePosixPath(path)
 
         LOGGER.debug('Trying to read file %s', path)
-        lines = self.run(f'{self.binary} base64 {self.q(str(path))}', prefix=b'base64: ', root=True)
+        lines = self.run(f'{self.binary} base64 {shlex.quote(str(path))}', prefix=b'base64: ', root=True)
         contents = base64.b64decode(b''.join(lines))
         LOGGER.debug('Successfully read %d bytes', len(contents))
 
@@ -121,7 +117,7 @@ class SingleBinaryADBInterface(ADBInterface):
         LOGGER.debug('Hashing file %s', path)
 
         # Assume `ls -l` only changes when the file changes
-        lines = self.run(f'{self.binary} ls -l {self.q(str(path))}', prefix=b'ls: ', root=True)
+        lines = self.run(f'{self.binary} ls -l {shlex.quote(str(path))}', prefix=b'ls: ', root=True)
 
         # Hash both the metadata and the file's contents
         key = repr((lines, self.read_file(path).read())).encode('ascii')
