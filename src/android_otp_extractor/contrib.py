@@ -88,6 +88,9 @@ def display_qr_codes(accounts, prepend_issuer=False):
                 .left {
                     color: rgb(170, 170, 170);
                 }
+                @media print {
+                    .pagebreak { page-break-before: always; }
+                }
             </style>
         </head>
 
@@ -97,6 +100,7 @@ def display_qr_codes(accounts, prepend_issuer=False):
             <script src="https://unpkg.com/@otplib/preset-browser@12.0.1/index.js" integrity="sha384-d4ckAJIrPG6rCB/5gBX68DepjontMupkR+V6gIE38XtUX65BNJZV+wRYrzF0GDSG" crossorigin="anonymous"></script>
 
             <template>
+                <div class="pagebreak"> </div>
                 <div class="item">
                     <h1 class="name"></h1>
                     <h2 class="code-wrapper"><code class="code"></code> <code class="left"></code></h2>
@@ -175,7 +179,7 @@ def display_qr_codes(accounts, prepend_issuer=False):
                     document.body.appendChild(element);
                 }
             </script>
-        </body>''' % json.dumps([a.as_uri(prepend_issuer) for a in accounts])
+        </body>''' % json.dumps(sorted([a.as_uri(prepend_issuer) for a in accounts]))
 
     # Temporary files are only readable by the current user (mode 0600)
     with NamedTemporaryFile(delete=False, suffix='.html') as temp_html_file:
