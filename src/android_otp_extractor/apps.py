@@ -113,7 +113,10 @@ def read_duo_accounts(adb):
         return
 
     for account in json.load(f):
-        secret = base64.b32decode(account['otpGenerator']['otpSecret'])
+        try:
+            secret = base64.b32decode(account['otpGenerator']['otpSecret'])
+        except ValueError:
+            secret = base64.b64decode(account['otpGenerator']['otpSecret'])
 
         if 'counter' in account['otpGenerator']:
             yield HOTPAccount(account['name'], secret, counter=account['otpGenerator']['counter'])
