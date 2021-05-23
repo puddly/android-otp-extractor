@@ -312,6 +312,24 @@ def read_steam_authenticator_accounts(adb):
         yield SteamAccount(account_json['account_name'], secret)
 
 
+@supported_app('Battle.net Authenticator')
+def read_battle_net_authenticator_accounts(adb):
+    try:
+        f = adb.read_file(adb.data_root/'com.blizzard.bma/shared_prefs/com.blizzard.bma.AUTH_STORE.xml')
+    except FileNotFoundError:
+        return
+
+    encoded_hash = ElementTree.parse(f).find('.//string[@name="com.blizzard.bma.AUTH_STORE.HASH"]').text
+
+    key = bytes.fromhex('398e27fc50276a656065b0e525f4c06c04c61075286b8e7aeda59da9813b5dd6c80d2fb38068773fa59ba47c17ca6c6479015c1d5b8b8f6b9a')
+    decoded_hash = bytes([a ^ b for a, b in zip(bytes.fromhex(encoded_hash), key)]).decode('ascii')
+
+    secret = bytes.fromhex(decoded_hash[:40])
+    serial = decoded_hash[40:]
+
+    yield TOTPAccount(f"Battle.net {serial}", issuer="Battle.net", secret=secret, digits=8, period=30)
+
+
 @supported_app('Aegis')
 def read_aegis_accounts(adb):
     try:

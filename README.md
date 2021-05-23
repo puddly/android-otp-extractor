@@ -12,6 +12,7 @@ Many OTP apps don't support exporting or backing up their OTP secrets. Switching
  - Steam Authenticator
  - AndOTP (when backups are enabled)
  - Aegis
+ - Battle.net Authenticator
 
 ## Installation
 
