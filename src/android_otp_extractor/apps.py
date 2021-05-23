@@ -319,7 +319,7 @@ def read_battle_net_authenticator_accounts(adb):
     except FileNotFoundError:
         return
 
-    encoded_hash = ElementTree.parse(f).find('.//map/string[@name="com.blizzard.bma.AUTH_STORE.HASH"]').text
+    encoded_hash = ElementTree.parse(f).find('.//string[@name="com.blizzard.bma.AUTH_STORE.HASH"]').text
 
     key = bytes.fromhex('398e27fc50276a656065b0e525f4c06c04c61075286b8e7aeda59da9813b5dd6c80d2fb38068773fa59ba47c17ca6c6479015c1d5b8b8f6b9a')
     decoded_hash = bytes([a ^ b for a, b in zip(bytes.fromhex(encoded_hash), key)]).decode('ascii')
