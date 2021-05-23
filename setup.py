@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='android-otp-extractor',
-    version='1.0.5',
+    version='1.0.6',
     description='Extracts and exports OTP secrets from most Android OTP apps',
 
     long_description=(pathlib.Path(__file__).parent / 'README.md').read_text(),
