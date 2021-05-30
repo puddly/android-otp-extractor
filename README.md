@@ -13,6 +13,7 @@ Many OTP apps don't support exporting or backing up their OTP secrets. Switching
  - AndOTP (when backups are enabled)
  - Aegis
  - Battle.net Authenticator
+ - Authenticator Plus
 
 ## Installation
 
@@ -27,20 +28,20 @@ Requires Python 3.6+ and a **rooted** Android phone.
 
 ```
 usage: python -m android_otp_extractor [-h]
-                                       [--include {authy,freeotp,freeotp_plus,duo,google_authenticator,microsoft_authenticator,andotp,steam_authenticator,aegis} | --exclude {authy,freeotp,freeotp_plus,duo,google_authenticator,microsoft_authenticator,andotp,steam_authenticator,aegis}]
+                                       [--include {authy,freeotp,freeotp_plus,duo,google_authenticator,microsoft_authenticator,andotp,steam_authenticator,battlenet_authenticator,aegis,authenticator_plus} | --exclude {authy,freeotp,freeotp_plus,duo,google_authenticator,microsoft_authenticator,andotp,steam_authenticator,battlenet_authenticator,aegis,authenticator_plus}]
                                        [--data DATA]
                                        [--busybox-path BUSYBOX_PATH]
                                        [--no-show-qr] [--prepend-issuer]
                                        [--andotp-backup ANDOTP_BACKUP] [-v]
 
-Extracts OTP secrets from a rooted Android phone.
+Extracts TOTP secrets from a rooted Android phone.
 
 optional arguments:
   -h, --help            show this help message and exit
-  --include {authy,freeotp,freeotp_plus,duo,google_authenticator,microsoft_authenticator,andotp,steam_authenticator,aegis}
+  --include {authy,freeotp,freeotp_plus,duo,google_authenticator,microsoft_authenticator,andotp,steam_authenticator,battlenet_authenticator,aegis,authenticator_plus}
                         only export secrets from this app. Can be specified
                         multiple times. (default: None)
-  --exclude {authy,freeotp,freeotp_plus,duo,google_authenticator,microsoft_authenticator,andotp,steam_authenticator,aegis}
+  --exclude {authy,freeotp,freeotp_plus,duo,google_authenticator,microsoft_authenticator,andotp,steam_authenticator,battlenet_authenticator,aegis,authenticator_plus}
                         do not export secrets from this app. Can be specified
                         multiple times. (default: None)
   --data DATA           path to the app data folder (default:
