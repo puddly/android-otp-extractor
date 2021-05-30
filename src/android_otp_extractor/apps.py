@@ -30,7 +30,7 @@ def supported_app(name):
     Simple decorator to populate the SUPPORTED_APPS list
     '''
 
-    simple_name = name.lower().replace('+', '_plus').replace(' ', '_')
+    simple_name = name.lower().replace('+', '_plus').replace(' ', '_').replace('.', '')
 
     def inner(extractor):
         SUPPORTED_APPS.append(SupportedApp(name, simple_name, extractor))
