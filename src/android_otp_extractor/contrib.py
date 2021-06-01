@@ -9,9 +9,29 @@ from pathlib import PurePosixPath, Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 from urllib.request import pathname2url
 
+# https://github.com/elouajib/sqlescapy/blob/master/sqlescapy/sqlescape.py
+SQL_BACKSLASHED_CHARS = str.maketrans({
+    "\x00": "\\0",
+    "\x08": "\\b",
+    "\x09": "\\t",
+    "\x1a": "\\z",
+    "\n": "\\n",
+    "\r": "\\r",
+    "\\": "\\\\",
+    "%": "\\%",
+    "'": "''",
+})
+
+def escape_sql_string(text):
+    """
+    SQLite cannot handle parameterized PRAGMA queries so manual string escaping must be used.
+    """
+
+    return "'" + text.translate(SQL_BACKSLASHED_CHARS) + "'"
+
 
 @contextlib.contextmanager
-def open_remote_sqlite_database(adb, database):
+def open_remote_sqlite_database(adb, database, *, sqlite3=sqlite3):
     database = PurePosixPath(database)
 
     with TemporaryDirectory() as temp_dir:

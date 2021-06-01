@@ -14,7 +14,7 @@ import cryptography
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 
-from .contrib import open_remote_sqlite_database
+from .contrib import open_remote_sqlite_database, escape_sql_string
 from .otp import TOTPAccount, HOTPAccount, SteamAccount, lenient_base32_decode
 
 
@@ -30,7 +30,7 @@ def supported_app(name):
     Simple decorator to populate the SUPPORTED_APPS list
     '''
 
-    simple_name = name.lower().replace('+', '_plus').replace(' ', '_')
+    simple_name = name.lower().replace('+', '_plus').replace(' ', '_').replace('.', '')
 
     def inner(extractor):
         SUPPORTED_APPS.append(SupportedApp(name, simple_name, extractor))
@@ -360,6 +360,48 @@ def read_aegis_accounts(adb):
             yield SteamAccount(entry['name'], issuer=entry['issuer'], secret=secret)
         else:
             LOGGER.warning('Unknown Aegis account type: %s', entry['type'])
+
+
+@supported_app('Authenticator Plus')
+def read_authenticator_plus_accounts(adb):
+    try:
+        f = adb.read_file(adb.data_root/'com.mufri.authenticatorplus/databases/databases')
+    except FileNotFoundError:
+        return
+
+    try:
+        from pysqlcipher3 import dbapi2 as sqlcipher_sqlite
+    except ImportError:
+        LOGGER.error("Decrypting Authenticator Plus databases requires the `pysqlcipher3` Python package")
+        return
+
+    with open_remote_sqlite_database(
+        adb, adb.data_root/'com.mufri.authenticatorplus/databases/databases',
+        sqlite3=sqlcipher_sqlite
+    ) as connection:
+        cursor = connection.cursor()
+
+        master_password = getpass.getpass('Enter the Authenticator Plus master password: ')
+
+        # XXX: This is intentional. You can't parameterize PRAGMA queries.
+        cursor.execute(f"PRAGMA key = {escape_sql_string(master_password)};")
+        cursor.execute("PRAGMA cipher_page_size = 1024;")
+        cursor.execute("PRAGMA kdf_iter = 64000;")
+        cursor.execute("PRAGMA cipher_hmac_algorithm = HMAC_SHA1;")
+        cursor.execute("PRAGMA cipher_kdf_algorithm = PBKDF2_HMAC_SHA1;")
+
+        cursor.execute('SELECT * FROM accounts;')
+
+        for row in cursor.fetchall():
+            secret = lenient_base32_decode(row['secret'])
+
+            if row['type'] == 0:
+                yield TOTPAccount(row['email'], issuer=row['issuer'], secret=secret)
+            elif row['type'] == 1:
+                yield HOTPAccount(row['email'], issuer=row['issuer'], secret=secret, counter=row['counter'])
+            else:
+                LOGGER.warning("Unknown account type %s: %s", row['type'], dict(row))
+
 
 
 def read_accounts(adb, apps):
