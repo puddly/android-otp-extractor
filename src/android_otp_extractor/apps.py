@@ -62,12 +62,11 @@ def read_authy_accounts(adb):
                     LOGGER.warning("Transformed Authy secret %s into %s", dec_secret, fixed_secret)
 
                 secret = lenient_base32_decode(fixed_secret.upper())
+                yield TOTPAccount(account['name'], secret=secret, digits=account['digits'], period=period)
             else:
                 period = 10
                 secret = bytes.fromhex(account['secretSeed'])
-
-            # Authy stores its secrets in the same format as they're provided so we have to guess their type
-            yield TOTPAccount(account['name'], secret=secret, digits=account['digits'], period=period)
+                yield AuthyAccount(account['name'], secret=secret, digits=account['digits'], period=period)
 
 
 def _read_freeotp_accounts(adb, *, package_name):
@@ -164,14 +163,14 @@ def read_microsoft_authenticator_accounts(adb):
             cursor.execute('SELECT * FROM accounts;')
 
             for row in cursor.fetchall():
-                secret_key = base64.b64decode(row['oath_secret_key'])
-
                 if row['account_type'] == 0:
+                    secret_key = lenient_base32_decode(row['oath_secret_key'])
                     yield TOTPAccount(name=row['username'], issuer=row['name'], secret=secret_key, digits=6)
-                elif row['account_type'] == 2:
+                elif row['account_type'] in (1, 2):
+                    secret_key = base64.b64decode(row['oath_secret_key'])
                     yield TOTPAccount(name=row['username'], issuer=row['name'], secret=secret_key, digits=8)
                 else:
-                    LOGGER.warning('Unknown Microsoft account type: %r', row['account_type'])
+                    LOGGER.warning('Unknown Microsoft account type: %r', row)
     except FileNotFoundError:
         return
 
@@ -309,7 +308,7 @@ def read_steam_authenticator_accounts(adb):
 
         secret = base64.b64decode(account_json['shared_secret'])
 
-        yield SteamAccount(account_json['account_name'], secret)
+        yield SteamAccount(account_json['account_name'], secret, issuer='Steam')
 
 
 @supported_app('Battle.net Authenticator')

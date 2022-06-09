@@ -1,3 +1,9 @@
+"""
+Implementations of common OTP algorithms.
+"""
+
+from __future__ import annotations
+
 import time
 import hmac
 import base64
@@ -5,28 +11,66 @@ import hashlib
 
 from urllib.parse import quote, urlencode
 
+HASHING_ALGORITHMS = {
+    'SHA1': hashlib.sha1,
+    'SHA256': hashlib.sha256,
+    'SHA512': hashlib.sha512,
+}
 
-def lenient_base32_decode(data):
+
+def lenient_base32_decode(data: str) -> bytes:
     # Pad it to a multiple of 8
     data = data.rstrip('=') + '=' * ((8 - len(data) % 8) % 8)
 
     return base64.b32decode(data)
 
 
-def generate_hotp_token(secret, counter, digits):
-    assert 1 <= digits <= 10
-
-    message = counter.to_bytes(8, 'big')
-    digest = hmac.new(secret, message, hashlib.sha1).digest()
+def _hotp_helper(key: bytes, msg: bytes, digits: int, algorithm: str, alphabet: str) -> str:
+    digest = hmac.digest(
+        key=key,
+        msg=msg,
+        digest=HASHING_ALGORITHMS[algorithm],
+    )
 
     offset = digest[-1] & 0b1111
     extracted = int.from_bytes(digest[offset:offset + 4], 'big') & 0b01111111111111111111111111111111
 
-    return str(extracted % 10**digits).zfill(digits)
+    result = ''
+
+    for i in range(digits):
+        extracted, remainder = divmod(extracted, len(alphabet))
+        result += alphabet[remainder]
+
+    return result[::-1]
+
+
+def rfc4226_hotp(secret: bytes, counter: int, digits: int, algorithm: str, alphabet: str) -> str:
+    return _hotp_helper(
+        key=secret,
+        msg=counter.to_bytes(8, 'big'),
+        digits=digits,
+        algorithm=algorithm,
+        alphabet=alphabet,
+    )
+
+
+def authy_hotp(secret: bytes, counter: int, digits: int, algorithm: str, alphabet: str) -> str:
+    """
+    Standards-violating HOTP algorithm used by Authy's Android app.
+    """
+
+    return _hotp_helper(
+        key=secret.hex().encode('ascii'),  # The secret encoded as hex in ASCII is used as the key
+        msg=str(counter).encode('ascii'),  # The counter is also encoded in ASCII as a base-10 number
+        digits=digits,
+        algorithm=algorithm,
+        alphabet=alphabet,
+    )
 
 
 class OTPAccount:
     type = None
+    alphabet = '0123456789'
 
     def __init__(self, name, secret, issuer=None):
         self.name = name
@@ -34,13 +78,13 @@ class OTPAccount:
         self.issuer = issuer
 
     @property
-    def secret(self):
+    def secret(self) -> str:
         return base64.b32encode(self._secret).decode('ascii').rstrip('=')
 
     def __hash__(self):
         return hash(self.as_uri())
 
-    def __eq__(self, other):
+    def __eq__(self, other) -> bool:
         return self.type == other.type and self.name == other.name and self.secret == other.secret
 
     def as_andotp(self):
@@ -92,7 +136,13 @@ class HOTPAccount(OTPAccount):
         return super().__eq__(other) and self.digits == other.digits and self.algorithm == other.algorithm
 
     def generate(self):
-        return generate_hotp_token(secret=self._secret, counter=self.counter, digits=self.digits)
+        return rfc4226_hotp(
+            secret=self._secret,
+            counter=self.counter,
+            digits=self.digits,
+            algorithm=self.algorithm,
+            alphabet=self.alphabet,
+        )
 
     def uri_params(self):
         return {
@@ -114,8 +164,17 @@ class TOTPAccount(OTPAccount):
     def as_andotp(self):
         return {**super().as_andotp(), **self.uri_params()}
 
-    def generate(self, *, offset=0):
-        return generate_hotp_token(secret=self._secret, counter=int(time.time() // self.period) + offset, digits=self.digits)
+    def generate(self, *, now=None):
+        if now is None:
+            now = time.time()
+
+        return rfc4226_hotp(
+            secret=self._secret,
+            counter=int(now // self.period),
+            digits=self.digits,
+            algorithm=self.algorithm,
+            alphabet=self.alphabet,
+        )
 
     def uri_params(self):
         return {
@@ -127,6 +186,23 @@ class TOTPAccount(OTPAccount):
 
 class SteamAccount(TOTPAccount):
     type = 'steam'
+    alphabet = '23456789BCDFGHJKMNPQRTVWXY'
 
     def __init__(self, name, secret, issuer=None):
         super().__init__(name, secret, issuer, digits=5)
+
+
+class AuthyAccount(TOTPAccount):
+    type = 'authy'
+
+    def generate(self, *, now=None):
+        if now is None:
+            now = time.time()
+
+        return authy_hotp(
+            secret=self._secret,
+            counter=int(now // self.period),
+            digits=self.digits,
+            algorithm=self.algorithm,
+            alphabet=self.alphabet,
+        )

@@ -9,6 +9,9 @@ from pathlib import PurePosixPath, Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 from urllib.request import pathname2url
 
+from .otp import HOTPAccount
+
+
 # https://github.com/elouajib/sqlescapy/blob/master/sqlescapy/sqlescape.py
 SQL_BACKSLASHED_CHARS = str.maketrans({
     "\x00": "\\0",
@@ -58,148 +61,174 @@ def open_remote_sqlite_database(adb, database, *, sqlite3=sqlite3):
 
 
 def display_qr_codes(accounts, prepend_issuer=False):
-    accounts_html = '''
-        <!doctype html>
+    account_dicts = []
+    now = int(time.time())
 
-        <head>
-            <meta charset="UTF-8" />
-            <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
-            <meta http-equiv="Pragma" content="no-cache" />
-            <meta http-equiv="Expires" content="0" />
+    for account in accounts:
+        d = {
+            "uri": account.as_uri(prepend_issuer),
+            **account.as_andotp(),
+        }
 
-            <title>OTP QR Codes</title>
+        if isinstance(account, HOTPAccount):
+            d["code"] = account.generate()
+        else:
+            # Generate 1000 codes per account
+            d["codes"] = []
 
-            <style type="text/css">
-                body {
-                    color: #444444;
-                    font-size: 18px;
-                    line-height: 1.6;
+            for i in range(1000):
+                d["codes"].append(account.generate(now=now + account.period * i))
 
-                    max-width: 800px;
-                    margin-left: auto;
-                    margin-right: auto;
+        account_dicts.append(d)
 
-                    padding: 2em;
-                }
+    accounts_html = '''<!doctype html>
 
-                img.qr {
-                    max-width: 500px;
-                    height: auto;
-                    width: 100%%;
-                }
+<head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
 
-                .info {
-                    color: #4D92CE;
-                    text-align: center;
-                    margin-bottom: 10px;
-                }
+    <title>OTP QR Codes</title>
 
-                pre.uri {
-                    word-break: break-all;
-                    white-space: pre-wrap;
-                }
+    <style type="text/css">
+        body {
+            color: #444444;
+            font-size: 18px;
+            line-height: 1.6;
 
-                .item:not(:last-of-type) {
-                    margin-bottom: 50px;
-                    padding-bottom: 50px;
-                    border-bottom: 1px solid #EEEEEE;
-                }
+            margin: 0;
+            padding: 0;
 
-                .left {
-                    color: rgb(170, 170, 170);
-                }
-                @media print {
-                    .pagebreak { page-break-before: always; }
-                }
-            </style>
-        </head>
+            font-family: sans-serif;
+        }
 
-        <body>
-            <script src="https://unpkg.com/qrious@4.0.2/dist/qrious.min.js" integrity="sha384-Dr98ddmUw2QkdCarNQ+OL7xLty7cSxgR0T7v1tq4UErS/qLV0132sBYTolRAFuOV" crossorigin="anonymous"></script>
-            <script src="https://unpkg.com/@otplib/preset-browser@12.0.1/buffer.js" integrity="sha384-NhS3AxwDg2QutVV/6mhT3YMDIi0COa3DMRrKJ28dASNnltnsL65lEMS+lfC5CKK9" crossorigin="anonymous"></script>
-            <script src="https://unpkg.com/@otplib/preset-browser@12.0.1/index.js" integrity="sha384-d4ckAJIrPG6rCB/5gBX68DepjontMupkR+V6gIE38XtUX65BNJZV+wRYrzF0GDSG" crossorigin="anonymous"></script>
+        img.qr {
+            max-width: 500px;
+            height: auto;
+            width: 100%%;
+        }
 
-            <template>
-                <div class="pagebreak"> </div>
-                <div class="item">
-                    <h1 class="name"></h1>
-                    <h2 class="code-wrapper"><code class="code"></code> <code class="left"></code></h2>
-                    <img class="qr" />
-                    <pre class="uri"></pre>
-                </div>
-            </template>
+        .info {
+            background: #4D92CE;
+            color: white;
 
-            <h3 class="info">Note: Authy's 7-digit codes have a period of 10 seconds and will not match what's displayed in the app. This is not a bug.</h3>
+            font-size: 1.5em;
+            font-weight: bold;
 
-            <script>
-                var accounts = %s;
-                var template = document.querySelector('template');
+            padding: 1em;
+        }
 
-                for (var i = 0; i < accounts.length; i++) {
-                    var account = accounts[i];
-                    var url = new URL(account);
-                    var element = template.content.cloneNode(true);
-                    var params = new URLSearchParams(url.search);
-                    var [type, name] = url.pathname.replace('//', '').split('/', 2);
+        .item {
+            padding: 1em;
+        }
 
-                    element.querySelector('.name').textContent = decodeURIComponent(name);
-                    element.querySelector('.uri').textContent = account;
+        pre.uri {
+            word-break: break-all;
+            white-space: pre-wrap;
+        }
 
-                    var image = element.querySelector('img');
+        .wrapper {
+            max-width: 800px;
+            margin-left: auto;
+            margin-right: auto;
+        }
 
-                    var qr_image = new QRious({
-                        element: image,
-                        value: account,
-                        size: 500
-                    });
+        .item:nth-of-type(2n + 1) {
+            background: rgb(240, 240, 240);
+            border-top: 1px solid rgb(220, 220, 220);
+            border-bottom: 1px solid rgb(220, 220, 220);
+        }
 
-                    image.removeAttribute('width');
-                    image.removeAttribute('height');
+        .left {
+            color: rgb(170, 170, 170);
+        }
 
-                    var code = element.querySelector('.code')
-                    var left = element.querySelector('.left')
+        @media print {
+            .item {
+                page-break-before: always;
+            }
+        }
+    </style>
+</head>
 
-                    if (type === 'hotp') {
-                        window.otplib.hotp.options = {
-                            digits: parseInt(params.get('digits'), 10),
-                        };
+<body>
+    <script src="https://unpkg.com/qrious@4.0.2/dist/qrious.min.js" integrity="sha384-Dr98ddmUw2QkdCarNQ+OL7xLty7cSxgR0T7v1tq4UErS/qLV0132sBYTolRAFuOV" crossorigin="anonymous"></script>
 
-                        var secret = window.otplib.authenticator.encode(params.get('secret'));
+    <template>
+        <div class="item">
+            <div class="wrapper">
+                <h1 class="name"></h1>
+                <h2 class="code-wrapper"><code class="code"></code> <code class="left"></code></h2>
+                <img class="qr" />
+                <pre class="uri"></pre>
+            </div>
+        </div>
+    </template>
 
-                        code.textContent = window.otplib.hotp.generate(
-                            secret,
-                            parseInt(params.get('counter'), 10)
-                        );
+    <div class="info">
+        <div class="wrapper">
+            <u>Note</u>: Authy's 7-digit codes have a period of 10 seconds and <a href="https://github.com/puddly/android-otp-extractor/issues/34#issuecomment-634447781">may not match what's displayed in the app</a>. This is not a bug.
+        </div>
+    </div>
 
-                        left.textContent = '(counter: ' + params.get('counter') + ')';
+    <script>
+        let time_start = %d;
+        let accounts = %s;
 
-                        window.otplib.hotp.resetOptions();
-                    } else {
-                        var callback = function(params, code, left) {
-                            var secret = params.get('secret');
-                            var period = parseInt(params.get('period'), 10);
-                            var now = +(Date.now()) / 1000;
-                            var next_period = Math.ceil(now / period) * period;
+        let template = document.querySelector('template');
 
-                            window.otplib.authenticator.options = {
-                                digits: parseInt(params.get('digits'), 10),
-                                step: period,
-                            };
+        for (let account of accounts) {
+            let element = template.content.cloneNode(true).querySelector('.item');
+            account.element = element;
+            account.last_update = 0;
 
-                            code.textContent = window.otplib.authenticator.generate(secret);
-                            left.textContent = '(' + (next_period - now).toFixed(0) + 's)';
+            let image = account.element.querySelector('img');
+            image.removeAttribute('width');
+            image.removeAttribute('height');
 
-                            window.otplib.authenticator.resetOptions();
-                        }
+            let qr_image = new QRious({
+                element: account.element.querySelector('img'),
+                value: account.uri,
+                backgroundAlpha: 0,
+                size: 500
+            });
 
-                        callback(params, code, left);
-                        setInterval(callback, 1000, params, code, left);
-                    }
+            element.querySelector('.name').textContent = account.label;
+            element.querySelector('.uri').textContent = account.uri;
 
-                    document.body.appendChild(element);
-                }
-            </script>
-        </body>''' % json.dumps(sorted([a.as_uri(prepend_issuer) for a in accounts]))
+            // HOTP accounts show just one code
+            if ('code' in account) {
+                account.element.querySelector('.code').textContent = account.code;
+                account.element.querySelector('.left').textContent = `(counter: ${account.counter})`;
+            }
+
+            document.body.appendChild(element);
+        }
+
+        function update() {
+            let now = Date.now();
+
+            for (let account of accounts) {
+                if (!('codes' in account))  continue;
+
+                let counter = Math.floor(now / (1000 * account.period));
+                let start_counter = Math.floor(time_start / (1000 * account.period));
+
+                let next_update = (1000 * account.period) * (counter + 1);
+                let code = account.codes[counter - start_counter];
+
+                account.element.querySelector('.code').textContent = code;
+                account.element.querySelector('.left').textContent = `(${Math.round((next_update - now) / 1000)}s remaining)`;
+            }
+
+            let next_second = 1000 * (1 + Math.floor(now / 1000)) - now;
+            setTimeout(update, next_second);
+        }
+
+        update();
+    </script>
+</body>''' % (now * 1000, json.dumps(sorted(account_dicts, key=lambda a: a['uri'])))
 
     # Temporary files are only readable by the current user (mode 0600)
     with NamedTemporaryFile(delete=False, suffix='.html') as temp_html_file:
