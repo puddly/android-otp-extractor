@@ -437,6 +437,8 @@ def read_accounts(adb, apps):
                 accounts.remove(duplicate)
                 account.add(account)
 
-        LOGGER.info('Found %d accounts (%d new)', len(new), len(accounts) - old_count)
+        new_count = len(accounts) - old_count
+        duplicate_count = len(new) - new_count
+        LOGGER.info(f'Found {len(new)} accounts ({new_count} new, {duplicate_count} duplicate)')
 
     return accounts
