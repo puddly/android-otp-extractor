@@ -34,4 +34,10 @@ setup(
         'Bug Reports': 'https://github.com/puddly/android-otp-extractor/issues',
         'Source': 'https://github.com/puddly/android-otp-extractor/',
     },
+
+    entry_points={
+        'console_scripts': [
+            'android-otp-extractor=android_otp_extractor.cli:main',
+        ],
+    },
 )

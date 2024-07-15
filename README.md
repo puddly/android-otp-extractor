@@ -17,10 +17,26 @@ Many OTP apps don't support exporting or backing up their OTP secrets. Switching
 
 ## Installation
 
-```bash
-$ pip install git+https://github.com/puddly/android-otp-extractor
-$ python -m android_otp_extractor
-```
+1. Install with pipx
+
+   ```bash
+   pipx install git+https://github.com/puddly/android-otp-extractor
+   android-otp-extractor --help
+   ```
+
+1. Install as a Python module
+
+   We suggest that you install this in a temporary directory instead of your HOME directory.
+
+   ```bash
+   python3 -m venv .venv
+   source .venv/bin/activate
+   pip install git+https://github.com/puddly/android-otp-extractor
+   # Run directly
+   android-otp-extractor --help
+   # Run as a module
+   python -m android_otp_extractor --help
+   ```
 
 ## Usage
 
